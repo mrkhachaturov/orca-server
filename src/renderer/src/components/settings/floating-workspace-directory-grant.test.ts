@@ -43,7 +43,6 @@ vi.mock('../../i18n/i18n', () => ({
 }))
 vi.mock('@/lib/web-client-location', () => ({ isWebClientLocation: () => true }))
 
-// Keep the dialog shell out of the way; the audit targets the grant wiring only.
 vi.mock('../ui/dialog', () => ({
   Dialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
     open ? createElement('div', null, children) : null,
@@ -135,9 +134,8 @@ describe('floating workspace directory grant failure', () => {
 
     await pickDirectory()
 
-    // Why: a stored path the server refused resolves to '', which the input then renders
-    // as the configured directory — so the pane would show a directory that was never
-    // authorised while the floating terminal opened somewhere else.
+    // A stored path the server refused resolves to '', which the input renders as the
+    // configured directory — so the pane would show a directory that was never authorised.
     await waitFor(() => {
       expect(grantFloatingWorkspaceDirectory).toHaveBeenCalledTimes(1)
     })
@@ -145,8 +143,6 @@ describe('floating workspace directory grant failure', () => {
   }, 15_000)
 
   it('tells the user why the directory was refused', async () => {
-    // Why: dropping the pick silently is indistinguishable from a misclick. The server's
-    // own reason is the only thing that says whether to pick elsewhere or fix a permission.
     grantFloatingWorkspaceDirectory.mockRejectedValue(
       new Error('floatingWorkspace.grantDirectory: EACCES')
     )

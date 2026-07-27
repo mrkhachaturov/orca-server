@@ -9,24 +9,12 @@ popd() {
   builtin popd > /dev/null
 }
 
-# The pinned Orca version is the submodule checkout itself — there is no second
-# pin to keep in sync. Everything that needs a version number reads it here.
 orca_version() {
   jq -r .version lib/orca/package.json
 }
 
-# Our version, derived from the Orca version above. Orca's major is always 1 and
-# carries no information, so it goes and the two components that move stay:
-# Orca 1.4.156 releases as 4.156.0. The last slot is ours, so 4.156.1 is the same
-# Orca with a changed series; pass it as $1. Reading it back is "take the first
-# two fields and prepend 1.".
-#
-# Read from package.json rather than `git describe`, the way code-server reads
-# Code's version. actions/checkout fetches submodules shallow and without tags,
-# so describe finds nothing in CI and the build fails at the last step.
-#
-# This lives here, not in the release workflow, so a local build and a CI build
-# name the artifact identically.
+# Orca 1.4.156 releases as 4.156.0; the last slot is ours ($1).
+# Not `git describe`: actions/checkout fetches submodules shallow and untagged.
 orca_server_version() {
   local version patch
   version="$(orca_version)"
@@ -34,10 +22,18 @@ orca_server_version() {
   echo "${version#*.}.${patch}"
 }
 
-# Orca declares its own toolchain and we match it — a newer pnpm breaks the
-# frozen lockfile, a newer node is not what upstream builds against.
+# A major ("24"). Match upstream's toolchain exactly — a newer pnpm breaks the
+# frozen lockfile.
 orca_node_version() {
   jq -r .engines.node lib/orca/package.json
+}
+
+# Resolves the major the way `actions/setup-node` does.
+orca_node_full_version() {
+  local major
+  major="$(orca_node_version)"
+  curl -fsSL https://nodejs.org/dist/index.json \
+    | jq -r --arg m "v${major}." 'map(select(.version | startswith($m))) | .[0].version | ltrimstr("v")'
 }
 
 orca_pnpm_version() {
@@ -78,8 +74,6 @@ if [[ ! ${OS-} ]]; then
   export OS
 fi
 
-# RELEASE_PATH is the destination directory for the built AppImage, from the
-# repo root. Defaults to dist (gitignored).
 if [[ ! ${RELEASE_PATH-} ]]; then
   RELEASE_PATH="dist"
   export RELEASE_PATH
@@ -95,8 +89,6 @@ run-steps() {
     local fn=$1
     shift
     echo "$name..."
-    # Only run if an earlier step has not failed.
-    # For all failed steps, write out an empty checkbox.
     if [[ $failed == 0 ]]; then
       if $fn | indent; then
         echo "- [X] $name" >> .cache/checklist

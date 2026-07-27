@@ -4,18 +4,9 @@ import type { WorktreeRuntimeOwnerState } from './worktree-runtime-owner-state'
 /**
  * Who owns the floating workspace — the client machine, or the connected runtime?
  *
- * On the desktop app the answer is always "this machine". The floating workspace is a
- * local scratch surface on purpose: it stays independent of whichever runtime happens to
- * be focused, so a remote-heavy session still has a terminal, a notes pad and a browser
- * on the laptop. Nothing below changes that.
- *
- * The web client has no local machine to own it. `window.api.pty.spawn` rejects, there is
- * no `<webview>` to host a browser pane, and there is no native file dialog — every local
- * affordance the floating workspace reaches for is a stub. So its floating workspace
- * belongs to the runtime that served the page, which floating-workspace-picker already assumed
- * when it moved the floating terminal's cwd resolution onto the host
- * (`floatingWorkspace.resolveCwd`): the cwd was resolved on the server while the terminal
- * itself was still being spawned against the client. This is the other half of that.
+ * Desktop: always local, deliberately — a scratch surface independent of whichever runtime is
+ * focused. The browser has no local machine to own it (`pty.spawn` rejects, no `<webview>`, no
+ * file dialog), so it belongs to the runtime that served the page.
  */
 export function resolveFloatingWorkspaceRuntimeEnvironmentId({
   isWebClient,
@@ -33,10 +24,9 @@ export function resolveFloatingWorkspaceRuntimeEnvironmentId({
   if (focused) {
     return focused
   }
-  // Why not `getSingleFocusedRuntimeEnvironmentId`: it starts from an explicit choice and
-  // returns null without one, which is right for a worktree of unknown provenance. Here the
-  // absence of a choice is not ambiguity — a browser saves exactly one environment, the
-  // server that served it, so an unset preference means that server rather than "local".
+  // Not `getSingleFocusedRuntimeEnvironmentId`: it returns null without an explicit choice. A
+  // browser saves exactly one environment — the server that served it — so an unset preference
+  // means that server, not "local".
   const savedIds = runtimeEnvironments?.map((environment) => environment.id.trim()) ?? []
   return savedIds.length === 1 ? (savedIds[0] || null) : null
 }
@@ -52,19 +42,10 @@ export function getFloatingWorkspaceRuntimeEnvironmentId(
 }
 
 /**
- * The runtime a web client must use when ownership resolved to "this machine".
- *
- * Ownership resolving local is a correct answer on the desktop app and an impossible
- * one in the browser: there is no local shell there, only a rejecting `pty.spawn`
- * stub. Owner resolution can still land on local for reasons that have nothing to do
- * with the floating workspace — a freshly created project whose catalog rows have not
- * been published with their runtime host yet is the one users hit, and it clears on
- * reload once hydration supplies the host.
- *
- * So this is a floor, not a diagnosis: whatever made ownership come out local, the
- * connected runtime is a better destination than an exception. Same value as the
- * floating owner above; separate name because the reason differs and the floating
- * rule is deliberate while this one is a backstop.
+ * A floor for a web client whose ownership resolved to "this machine" — impossible in a
+ * browser, and reachable when a fresh project's catalog rows lack their runtime host.
+ * Same value as the floating owner above; separate name because that rule is deliberate
+ * and this one is a backstop.
  */
 export function getWebClientLocalFallbackEnvironmentId(
   state: Pick<WorktreeRuntimeOwnerState, 'settings' | 'runtimeEnvironments'>

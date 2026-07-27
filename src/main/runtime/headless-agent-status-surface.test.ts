@@ -1,14 +1,6 @@
-/**
- * Headless session-tab surfaces must carry CURRENT hook-reported agent status.
- *
- * Regression: `mergeMobileSessionSnapshotTabs` dedupes by tab identity and keeps the CACHED tab, so
- * a rebuild that stamped agentStatus at build time had it discarded. The only path that replaced
- * wholesale was a `force: true` rebuild, whose sole trigger is a hook CHANGE — which never fires on
- * a host whose agents all exited before the last restart. Every pane then stayed a plain terminal
- * with no chat toggle until an agent ran again. Measured live 2026-07-27: `session.tabs.listAll`
- * returned 19 terminal surfaces, 0 with agentStatus, while the same host's `worktree.ps` reported 5
- * agents on exactly those pane keys.
- */
+// `mergeMobileSessionSnapshotTabs` dedupes by tab identity and keeps the CACHED tab, so a value
+// stamped at build time is discarded. Only a `force: true` rebuild replaces wholesale, and its
+// sole trigger is a hook CHANGE — which never fires on a host whose agents exited before restart.
 import { describe, expect, it } from 'vitest'
 import type {
   RuntimeMobileSessionTabsSnapshot,
@@ -155,9 +147,6 @@ function terminalSurfaces(
 
 describe('headless session-tab surfaces: agent status survives the snapshot merge', () => {
   it('stamps a hook row onto a pane whose cached snapshot has no agent status', async () => {
-    // Why: this is the post-restart state — hook rows hydrated from disk, snapshot built without
-    // them, and no hook will fire again because the agent already exited. Without post-merge
-    // resolution the cached statusless tab wins and the pane never offers native chat.
     const runtime = createRuntime([hookRow()])
 
     const surfaces = terminalSurfaces(await runtime.listAllMobileSessionTabs())
@@ -175,10 +164,8 @@ describe('headless session-tab surfaces: agent status survives the snapshot merg
   })
 
   it('survives another producer re-publishing the snapshot without status', async () => {
-    // Why: THE regression that shipped. 11 producers write these tabs with a bare `headless:` epoch,
-    // and mergeMobileSessionSnapshotTabs keeps the CACHED tab — so filling the field in one producer
-    // is undone by whichever runs next (live: opening a worktree bumped the snapshot and every pane
-    // lost its chat toggle again). Resolution must be at the publish boundary, not in a producer.
+    // 11 producers write these tabs, so filling the field in one is undone by whichever runs next.
+    // Resolution must be at the publish boundary, not in a producer.
     const runtime = createRuntime([hookRow()])
     const internals = runtime as unknown as RuntimeInternals
 
@@ -198,7 +185,6 @@ describe('headless session-tab surfaces: agent status survives the snapshot merg
   })
 
   it('emits no agent status for a pane the host reports no hook row for', async () => {
-    // Why: the resolution must not invent an agent on an ordinary shell pane.
     const runtime = createRuntime([])
 
     const surfaces = terminalSurfaces(await runtime.listAllMobileSessionTabs())

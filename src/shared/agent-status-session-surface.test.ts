@@ -30,9 +30,8 @@ function hookRow(overrides: Record<string, unknown> = {}): AgentStatusIpcPayload
 
 describe('session-surface agent status', () => {
   it('carries providerSession and model onto the surface entry', () => {
-    // Why: providerSession is the only field native chat resolves a session id + transcript path
-    // from, and model is what fills the composer's model picker. Dropping either reproduces the
-    // headless bug: an empty chat pane beside a sidebar row that says the agent is Done.
+    // providerSession is the only field native chat resolves a session id and transcript path
+    // from; model fills the composer's model picker.
     const entry = toSessionSurfaceAgentStatusEntry(hookRow())
 
     expect(entry.providerSession).toEqual({
@@ -45,8 +44,8 @@ describe('session-surface agent status', () => {
   })
 
   it('maps receivedAt onto updatedAt and starts an empty history', () => {
-    // Why: the renderer store keys freshness off updatedAt; leaving it undefined makes every
-    // mirrored row look stale and lose to `existing.updatedAt > entry.updatedAt`.
+    // The renderer store keys freshness off updatedAt; undefined loses to
+    // `existing.updatedAt > entry.updatedAt`.
     const entry = toSessionSurfaceAgentStatusEntry(hookRow())
 
     expect(entry.updatedAt).toBe(1785103715009)
@@ -63,8 +62,7 @@ describe('session-surface agent status', () => {
   })
 
   it('skips providerSessionOnly placeholders', () => {
-    // Why: Pi session_start rows exist only to refresh resume identity while idle; the renderer
-    // discards them, so publishing one as a surface entry would show a phantom agent on the tab.
+    // Pi session_start rows only refresh resume identity while idle; the renderer discards them.
     const byPaneKey = agentStatusEntriesByPaneKey([hookRow({ providerSessionOnly: true })])
 
     expect(byPaneKey.size).toBe(0)

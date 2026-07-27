@@ -2,22 +2,11 @@
 #MISE description="Move the pinned Orca submodule to a new tag and restack the series"
 #MISE dir="{{config_root}}"
 
-# Move the pinned Orca submodule to a new upstream tag and restack the patch
-# series onto it. Modelled on code-server's ci/build/update-vscode.sh.
-#
 #   VERSION=v1.4.157 mise run bump
 #
 # With no VERSION, assumes the submodule is already at the target and you are
-# re-running to resolve conflicts.
-#
-# A conflict stops the refresh loop. Resolve it the quilt way:
-#   quilt push -f          # force-apply, rejects land in *.rej
-#   ...fix the rejected hunks by hand...
-#   quilt refresh          # rewrite the patch against the new base
-#   mise run bump   # re-run to continue the series
-#
-# Applying is NOT acceptance. A patch that applies can still be redundant or
-# already shipped upstream; every bump re-justifies each patch in CHANGELOG.md.
+# re-running to resolve conflicts. A conflict stops the refresh loop; resolve it
+# and re-run: `quilt push -f`, fix the *.rej hunks, `quilt refresh`.
 
 set -Eeuo pipefail
 
@@ -25,11 +14,8 @@ function unapply_patches() {
   local -i exit_code=0
   quiet quilt pop -af 2>&1 || exit_code=$?
   case $exit_code in
-    # Successfully unapplied.
     0) ;;
-    # No more patches to unapply.
-    2) ;;
-    # Some error.
+    2) ;; # nothing left to unapply
     *) return $exit_code ;;
   esac
 }
@@ -38,18 +24,15 @@ function apply_patches() {
   local -i exit_code=0
   quiet quilt push -a 2>&1 || exit_code=$?
   case $exit_code in
-    # Successfully applied.
     0) ;;
-    # No more patches to apply.
-    2) ;;
-    # Some error.
+    2) ;; # nothing left to apply
     *) return $exit_code ;;
   esac
 }
 
 function update_orca() {
   pushd lib/orca
-  if ! git checkout 2>&1 "$target_orca_version"; then
+  if ! git checkout "$target_orca_version" 2>&1; then
     echo "$target_orca_version does not exist locally, fetching..."
     git fetch --all --prune --tags
     echo "Checking out $target_orca_version again..."
@@ -58,29 +41,25 @@ function update_orca() {
   popd
 }
 
-# Push one patch at a time and refresh it against the new base, so line numbers
-# and context are rewritten rather than carried as fuzz. The loop stops at the
-# first patch that will not apply; that one is a human's problem.
+# One patch at a time, refreshed against the new base so context is rewritten
+# rather than carried as fuzz. Stops at the first patch that will not apply.
 function refresh_patches() {
   local -i exit_code=0
-  while quiet quilt push 2>&1; ! ((exit_code = $?)); do
+  while
+    quiet quilt push 2>&1
+    ! ((exit_code = $?))
+  do
     quilt refresh 2>&1
   done
   case $exit_code in
-    # No more patches to apply.
-    2) ;;
-    # Some error.
+    2) ;; # nothing left to apply
     *) return $exit_code ;;
   esac
 }
 
-# Orca declares the node it builds against; the AppImage build must match it,
-# not "latest".
-# Upstream creating a file at a path the overlay owns is the loudest signal a
-# bump can produce: it means upstream shipped something we carry, or picked the
-# same name. Either way it is a finding, not a workspace problem — and git would
-# otherwise report it as "untracked working tree files would be overwritten",
-# which reads like the latter.
+# A collision means upstream now ships a path the overlay owns — a finding, not a
+# workspace problem, which is all git would call it ("untracked working tree
+# files would be overwritten").
 function check_overlay_collisions() {
   [ -d src ] || return 0
   local collisions="" f
@@ -98,16 +77,28 @@ function check_overlay_collisions() {
   echo "no overlay path collides with $(git -C lib/orca describe --tags --always)"
 }
 
+# Both files carry the node version and both have to move: .node-version holds
+# the major, mise.toml the exact release, and mise is what puts node on PATH in
+# CI. Move only one and CI silently keeps building on the old major.
 function update_node() {
-  local node_version
-  node_version=$(cat .node-version)
-  local target_node_version
-  target_node_version=$(orca_node_version)
-  if [[ $node_version == "$target_node_version" ]]; then
-    echo "Already set to $target_node_version"
+  local target_major
+  target_major=$(orca_node_version)
+  if [[ $(cat .node-version) == "$target_major" ]]; then
+    echo ".node-version already $target_major"
   else
-    echo "Updating from $node_version to $target_node_version..."
-    echo "$target_node_version" > .node-version
+    echo ".node-version: $(cat .node-version) -> $target_major"
+    echo "$target_major" > .node-version
+  fi
+
+  local target_full current_full
+  target_full=$(orca_node_full_version)
+  current_full=$(sed -n 's/^node = "\(.*\)"$/\1/p' mise.toml)
+  if [[ $current_full == "$target_full" ]]; then
+    echo "mise.toml already node $target_full"
+  else
+    echo "mise.toml: node $current_full -> $target_full"
+    sed -i.bak "s/^node = \".*\"$/node = \"$target_full\"/" mise.toml
+    rm -f mise.toml.bak
   fi
 }
 
@@ -123,14 +114,13 @@ function add_changelog() {
 
 function main() {
 
-  source ./ci/lib.sh
+  source ./.mise/lib.sh
 
   declare -a steps
 
   local target_orca_version
   if [[ ${VERSION-} ]]; then
-    # Removing patches only needs to be done locally; in CI we start from a
-    # fresh clone each time.
+    # CI starts from a fresh clone, so there is nothing applied to pop.
     if [[ ! ${CI-} ]]; then
       steps+=("Unapplying patches" "unapply_patches")
     fi
@@ -150,12 +140,11 @@ function main() {
     "Add changelog note" "add_changelog"
   )
 
-  # Even if a step failed, still output the last checkmark.
+  # Even a failed step still gets its checkmark written.
   run-steps "${steps[@]}" || true
 
-  # These steps are always manual. A clean restack says only that the patches
-  # still apply — it says nothing about src/, which cannot fail to apply and can
-  # still fail to compile, and nothing about whether any of it is still needed.
+  # Always manual: a clean restack says the patches apply, not that they are
+  # still needed, and says nothing at all about src/.
   {
     echo "- [ ] Re-justify every patch (keep / shrink / merge / drop)"
     echo "- [ ] Run mise run test:series — series integrity"

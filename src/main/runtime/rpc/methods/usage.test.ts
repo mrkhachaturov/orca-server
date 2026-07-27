@@ -32,10 +32,8 @@ function createUsageStoreStub() {
 
 type UsageStoreStub = ReturnType<typeof createUsageStoreStub>
 
-// Why: the handlers delegate straight to the store the runtime resolves, so a
-// bare runtime stub is enough. It refuses an unresolvable provider the way
-// OrcaRuntimeService.getUsageStore does, because answering `undefined` is the
-// exact failure this surface exists to remove.
+// Refuses an unresolvable provider the way OrcaRuntimeService.getUsageStore does — answering
+// `undefined` is the exact failure this surface exists to remove.
 function createRuntime(
   stores: Partial<Record<RuntimeUsageProvider, UsageStoreStub>>
 ): OrcaRuntimeService {
@@ -51,8 +49,7 @@ function createRuntime(
   } as unknown as OrcaRuntimeService
 }
 
-// Fixtures are what the desktop stores hand their IPC handlers; the tile has to
-// show the same ledger, so every payload must arrive unchanged.
+// Fixtures are what the desktop stores hand their IPC handlers.
 const scanState: ClaudeUsageScanState = {
   enabled: true,
   isScanning: false,
@@ -163,9 +160,7 @@ describe('usage RPC methods', () => {
   })
 
   it('answers the pane with the host scan state', async () => {
-    // Why: this is the pane's first call. When it resolves to nothing the pane
-    // treats usage as unavailable and stops at "Not scanned yet", so the state
-    // has to come back exactly as the host holds it.
+    // The pane's first call: resolving to nothing leaves it at "Not scanned yet".
     stores.claude.getScanState.mockReturnValue(scanState)
 
     const response = await dispatcher.dispatch(
@@ -177,9 +172,7 @@ describe('usage RPC methods', () => {
   })
 
   it('enables scanning on the host and returns the new scan state', async () => {
-    // Why: the enable button did nothing at all — no error, no effect. Both
-    // halves matter: the host must be told, and the caller must get a scan
-    // state back, because the pane bails when the toggle answers nothing.
+    // Both halves matter: the pane bails when the toggle answers nothing.
     const enabled: ClaudeUsageScanState = { ...scanState, enabled: true, isScanning: true }
     stores.codex.setEnabled.mockReturnValue(enabled)
 
@@ -197,9 +190,7 @@ describe('usage RPC methods', () => {
   })
 
   it('runs a scan, defaulting to the desktop non-forced refresh', async () => {
-    // Why: "enable a provider and scan" is the whole flow. `force` is optional
-    // on the desktop signature and defaults to false there; a scan requested
-    // without it must not become a forced re-scan of every log on the host.
+    // `force` is optional on the desktop signature and defaults to false there.
     stores.claude.refresh.mockResolvedValue(undefined)
 
     await dispatcher.dispatch(makeRequest('usage.refresh', { provider: 'claude', force: true }))
@@ -210,10 +201,6 @@ describe('usage RPC methods', () => {
   })
 
   it('returns the ledger snapshot for the requested window', async () => {
-    // Why: the snapshot is the ledger the tile renders — totals, chart, both
-    // breakdowns and the session list in one call. Scope, range and limit are
-    // the window the user picked, so they have to reach the store as chosen or
-    // the tile shows a different period than the same host shows on desktop.
     stores.claude.getSnapshot.mockReturnValue(snapshot)
 
     const response = await dispatcher.dispatch(
@@ -237,8 +224,6 @@ describe('usage RPC methods', () => {
   })
 
   it('returns the usage summary for the requested window', async () => {
-    // Why: the totals row — sessions, tokens, cache reuse, estimated cost.
-    // Numbers are the payload, so they must survive the wire untouched.
     stores.claude.getSummary.mockReturnValue(summary)
 
     const response = await dispatcher.dispatch(
@@ -250,8 +235,6 @@ describe('usage RPC methods', () => {
   })
 
   it('returns the daily series for the requested window', async () => {
-    // Why: the chart plots these points in order; a reordered or re-shaped
-    // series is a different graph than the desktop draws for the same host.
     stores.openCode.getDaily.mockReturnValue(daily)
 
     const response = await dispatcher.dispatch(
@@ -263,8 +246,6 @@ describe('usage RPC methods', () => {
   })
 
   it('returns the breakdown the caller asked for, by model or by project', async () => {
-    // Why: one method serves two tables. If the kind does not reach the store
-    // the pane renders the wrong one — models under the projects heading.
     stores.claude.getBreakdown
       .mockReturnValueOnce(modelBreakdown)
       .mockReturnValueOnce(projectBreakdown)
@@ -293,8 +274,6 @@ describe('usage RPC methods', () => {
   })
 
   it('returns the recent sessions for the requested window', async () => {
-    // Why: the session list at the bottom of the pane; `limit` is how many rows
-    // the caller asked for, so dropping it changes what the tile shows.
     stores.claude.getRecentSessions.mockReturnValue(recentSessions)
 
     const response = await dispatcher.dispatch(
@@ -311,8 +290,8 @@ describe('usage RPC methods', () => {
   })
 
   it('reads each provider from its own store', async () => {
-    // Why: provider is a parameter rather than three copies of the surface, so
-    // it is the only thing keeping Claude's ledger out of the Codex pane.
+    // provider is a parameter rather than three copies of the surface, so it is the only thing
+    // keeping Claude's ledger out of the Codex pane.
     stores.claude.getSummary.mockReturnValue(summary)
     stores.codex.getSummary.mockReturnValue({ ...summary, sessions: 7, topModel: 'gpt-5-codex' })
     stores.openCode.getSummary.mockReturnValue({ ...summary, sessions: 3, topModel: 'qwen3-coder' })
@@ -327,9 +306,6 @@ describe('usage RPC methods', () => {
   })
 
   it('rejects a provider this surface does not serve', async () => {
-    // Why: the runtime resolves the store by name; an unchecked provider would
-    // fall through to another provider's ledger and the pane would show it as
-    // if it were the one asked for.
     const response = await dispatcher.dispatch(
       makeRequest('usage.getSummary', { provider: 'grok', scope: 'orca', range: '30d' })
     )
@@ -341,8 +317,7 @@ describe('usage RPC methods', () => {
   })
 
   it('rejects a window the desktop contract does not offer', async () => {
-    // Why: scope and range are closed unions on the store; forwarding an
-    // unknown window would return a period nobody asked for.
+    // scope and range are closed unions on the store.
     const badRange = await dispatcher.dispatch(
       makeRequest('usage.getDaily', { provider: 'claude', scope: 'orca', range: '1y' })
     )
@@ -356,9 +331,8 @@ describe('usage RPC methods', () => {
   })
 
   it('fails loudly when a provider store is unavailable', async () => {
-    // Why: the preload fallback's silent `undefined` is what made the pane look
-    // broken rather than unavailable. A provider the host cannot serve must
-    // come back as an error, never as a successful empty answer.
+    // The preload fallback's silent `undefined` is what made the pane look broken rather than
+    // unavailable.
     const withoutCodex = new RpcDispatcher({
       runtime: createRuntime({ claude: stores.claude, openCode: stores.openCode }),
       methods: USAGE_METHODS

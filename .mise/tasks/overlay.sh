@@ -2,25 +2,10 @@
 #MISE description="Copy our own source into the patched Orca tree"
 #MISE dir="{{config_root}}"
 
-# Copy our own source into a patched Orca tree.
-#
-# Two jobs, deliberately separate:
-#   patches/  modify files that exist upstream
-#   src/      add files that do not
-#
-# The default run happens AFTER `quilt push -a`, so a patch can never touch a
-# path the overlay owns. The layout mirrors the target: src/<path> lands at
-# <root>/src/<path>.
-#
-#   mise run overlay                copy into lib/orca
-#   mise run overlay --check        assert the two owners are disjoint, copy nothing
-#   mise run overlay --clean        remove what a previous copy put there
-#   mise run overlay --into <root>  copy into another tree, e.g. a probe worktree
+# Runs AFTER `quilt push -a`, never before.
 #
 # `--clean` exists because `quilt pop -a` does NOT undo a copy: the files are
-# untracked in the submodule and survive a pop. Two things need it — returning
-# lib/orca to pristine, and proving a test red, since popping a patch leaves both
-# an overlay test and the overlay module it tests in place.
+# untracked in the submodule and survive a pop.
 
 set -Eeuo pipefail
 
@@ -42,8 +27,8 @@ function patched_files() {
     | sed -n "s|^lib/orca/$OVERLAY_ROOT/||p" | sort -u
 }
 
-# A path owned by both is the one thing this layout forbids: the overlay copies
-# last, so it would silently overwrite the patch's result.
+# The overlay copies last, so a path owned by both would silently overwrite the
+# patch's result.
 function check_disjoint() {
   local both
   both=$(comm -12 <(overlay_files) <(patched_files))
@@ -66,9 +51,7 @@ function copy_in() {
   done < <(overlay_files)
 }
 
-# Remove only what we put there. A file the overlay owns that git tracks would be
-# upstream's, so refuse it rather than delete someone else's work — that can only
-# mean upstream started shipping a file at one of our paths.
+# A path the overlay owns that git tracks is upstream's — refuse, never delete.
 function clean_out() {
   local f target removed=0 tracked=""
   while read -r f; do

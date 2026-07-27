@@ -28,8 +28,8 @@ async function fetchSettingsWith(isWebClient: boolean): Promise<{ hydrated: bool
   const get = (): AppState =>
     ({
       ...state,
-      // Why: a macrotask, so a fire-and-forget call provably has NOT completed by the
-      // time fetchSettings resolves — that is exactly the window under test.
+      // A macrotask, so a fire-and-forget call provably has NOT completed by the time
+      // fetchSettings resolves — that is the window under test.
       hydrateRuntimeEnvironmentCatalog: () =>
         new Promise((resolve) => {
           setTimeout(() => {
@@ -51,18 +51,16 @@ async function fetchSettingsWith(isWebClient: boolean): Promise<{ hydrated: bool
 
 describe('runtime environment catalog at boot', () => {
   it('has the catalog before fetchSettings resolves in a web client', async () => {
-    // Why: in a browser the catalog is the ONLY source of "which runtime owns this", and
-    // ownership resolution reads it synchronously from store state. An empty catalog
-    // resolves to local — the one answer a web client can never act on, and the exact
-    // failure this series exists to remove. Listing is a localStorage read there, not a
-    // network probe, so nothing is gained by deferring it.
+    // Ownership resolution reads the catalog synchronously from store state, and an empty one
+    // resolves to local — the answer a web client can never act on. Listing is a localStorage
+    // read in a browser, not a network probe.
     const { hydrated } = await fetchSettingsWith(true)
     expect(hydrated).toBe(true)
   })
 
   it('keeps the desktop boot off the network round trip', async () => {
-    // Why: on the desktop the catalog probe really does hit the network, and ownership
-    // has a valid local answer while it is missing. Fire-and-forget stays.
+    // On the desktop the probe hits the network and ownership has a valid local answer while
+    // it is missing, so fire-and-forget stays.
     const { hydrated } = await fetchSettingsWith(false)
     expect(hydrated).toBe(false)
   })

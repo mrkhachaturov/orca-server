@@ -36,6 +36,9 @@ these when the update pull request opens.
 
 `blocked` marks work waiting on something outside this repository.
 
+`good first issue` marks work that needs little of the patch model: docs, a covering test for a patch whose header
+names one thinly, reproducing an `upstream-gap`. Spaces, not hyphens — GitHub surfaces this one itself.
+
 ## Questions
 
 Convert questions and open-ended discussion into

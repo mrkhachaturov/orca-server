@@ -2,26 +2,11 @@ import { z } from 'zod'
 import { defineMethod, type RpcMethod } from '../core'
 import { RUNTIME_USAGE_PROVIDERS } from '../../../../shared/runtime-usage-providers'
 
-// Why: the web client has no ipcRenderer, so `window.api.<provider>Usage.*` fell
-// through to the preload fallback proxy and every call resolved to undefined. The
-// tile's Stats & Usage pane therefore showed "Not scanned yet" forever and its
-// enable buttons did nothing — upstream's own #10073 guarded the resulting
-// TypeError instead of closing the gap, which turned a missing bridge into a
-// silent no-op. Nothing else is missing: the agent logs, the scanners and the
-// stores all live on this host and already run under `orca serve` (the same
-// startup block that feeds the tile's live "Agents spawned" counters).
-//
-// These mirror the `<provider>Usage:` IPC handlers 1:1 so the renderer contract is
-// untouched, with the provider as a parameter rather than three copies of the same
-// eight methods — a fourth token-analytics provider becomes one registry entry in
-// main/index.ts plus one name in RUNTIME_USAGE_PROVIDERS. Grok is deliberately not
-// here: it is subscription rate-limit data behind rateLimits.*/grokAccounts.*,
-// which the web preload already implements.
-//
-// setEnabled MUTATES the host (it flips scanning on and rewrites the store's scan
-// state), and every read exposes local agent-log analytics, so all eight stay OUT
-// of MOBILE_RPC_METHOD_ALLOWLIST. Runtime-scope clients (the trusted-proxy web
-// tile) reach them the same way they reach cli.*/diagnostics.*.
+// Mirrors the `<provider>Usage:` IPC handlers 1:1, with the provider as a parameter. Without
+// them `window.api.<provider>Usage.*` falls through the web preload's fallback proxy and
+// resolves to undefined, which the pane renders as "Not scanned yet" forever.
+// setEnabled mutates the host and every read exposes local agent-log analytics, so none of
+// these may join MOBILE_RPC_METHOD_ALLOWLIST.
 const providerSchema = z.enum(RUNTIME_USAGE_PROVIDERS)
 const scopeSchema = z.enum(['orca', 'all'])
 const rangeSchema = z.enum(['7d', '30d', '90d', 'all'])

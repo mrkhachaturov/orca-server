@@ -47,10 +47,8 @@ function trustedContext(): NonNullable<StreamingOptions['trustedMobilePairing']>
 }
 
 describe('mobile pairing RPC methods', () => {
-  // Why: the context is the authorization gate — the transport injects it only
-  // for runtime-scope connections. Without it every method must fail closed,
-  // so a mobile-scope (or unix-socket) caller can never mint device
-  // credentials even if the transport allowlist regressed.
+  // The context is the authorization gate: without it a mobile-scope caller must never mint a
+  // device credential, even if the transport allowlist regressed.
   it.each([
     ['mobile.createPairingOffer', {}],
     ['mobile.listDevices', {}],

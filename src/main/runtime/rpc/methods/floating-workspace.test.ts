@@ -13,8 +13,6 @@ function makeRequest(method: string, params?: unknown): RpcRequest {
   return { id: 'req-1', authToken: 'tok', method, params }
 }
 
-// Why: the handlers delegate straight to the runtime service — a bare stub with
-// the two floating-workspace methods is enough for the dispatcher wiring.
 const runtime = {
   getRuntimeId: () => 'test-runtime',
   resolveFloatingTerminalCwd: mocks.resolveFloatingTerminalCwd,

@@ -15,13 +15,11 @@ when_to_use: >-
 
 # Patch audit — where a change belongs, and what the series should still be
 
-Runs before authoring. Deciding placement afterwards only reports the coupling you already built.
+Run before authoring, with the symbol list already in hand.
 
 ## Placement
 
-Diagnose first: placement is answered with the symbol list in hand.
-
-**Which owner, before which patch.** A file that already exists upstream is modified by a patch. A
+**Which owner, then which patch.** A file that already exists upstream is modified by a patch. A
 file that does not is ours and lives in the `src/` overlay, checked in plain and never in a patch.
 No path may be in both; `mise run overlay --check` fails if one is.
 
@@ -44,15 +42,13 @@ grep -lE "from '[^']*/<module>'" patches/*.diff   # the patch that wires an over
 
 **Symbols decide. Files inform.** `web-preload-api.ts` is touched by 9 of 13 patches, so a shared
 file is the normal case and produces a reading list. A shared *symbol* means one capability is
-being split in two.
+being split in two. Patch size never decides; size is what restacking costs.
 
 | What `quilt annotate` shows for your symbols | Verdict |
 |---|---|
 | a patch number already on those lines | extend that patch: edit the tree, `quilt refresh` that patch, no new entry |
 | numbers from several patches | one capability split across them — merge, or extend the earliest |
 | nothing | new patch, after reading what `quilt patches` lists for the files |
-
-Patch size never decides. Size is what restacking costs.
 
 ## Series audit
 
@@ -61,16 +57,16 @@ Patch size never decides. Size is what restacking costs.
 | Is any patch stale, fuzzy, or unlisted? | `mise run test:series` — 10 checks, including that every file in the tree has an owner |
 | Which patches are coupled, and through what? | `quilt graph --all --edge-labels=files` |
 | How much does a patch modify? | `quilt files <patch>.diff \| wc -l` |
-| Which files did we add rather than modify? | `find src -type f` — that is the whole answer |
+| Which files did we add rather than modify? | `find src -type f` |
 | Who owns this file? | `mise run owner <path>` |
 | Which symbols are ours inside an upstream file? | `quilt annotate lib/orca/<path>` — owner per line, legend at the end |
 | Does upstream already have a mechanism we reimplement? | `git -C lib/orca grep -n '<words>' <pinned tag>` |
 
-`quilt graph` reports every edge; rank them and work top-down. Shared symbols in one subject area
-mean merge. Shared files alone are normal.
+Rank `quilt graph` edges and work top-down. Shared symbols in one subject area mean merge; shared
+files alone are normal.
 
-Anything that enumerates the series by scanning `patches/*.diff` or `quilt files` under-reports what
-we own — 29 of our 91 files are in the overlay, and none of them is in a patch. Both owners:
+Enumerate both owners — scanning `patches/*.diff` or `quilt files` alone under-reports, since 29 of
+our 91 files are overlay-only:
 
 ```bash
 { grep -h '^+++ orca-server/lib/orca/' patches/*.diff \
@@ -82,9 +78,7 @@ we own — 29 of our 91 files are in the overlay, and none of them is in a patch
 ## When the pin moves
 
 Each patch's acceptance lives in its own rationale header: the *To test* line and the test files it
-names in backticks. A test that adds a file is an overlay file, so counting the tests a patch
-contains measures nothing — the header naming is the only link between a capability and its
-instrument. Recompute what each patch claims rather than trusting a list:
+names in backticks. Recompute what each patch claims rather than trusting a list:
 
 ```bash
 for p in $(grep -v '^[[:space:]]*\(#\|$\)' patches/series); do
@@ -93,19 +87,17 @@ for p in $(grep -v '^[[:space:]]*\(#\|$\)' patches/series); do
 done
 ```
 
-A patch naming no test cannot be dropped, shrunk or merged — give it one first. `test:series`
-check 5 already fails on a patch that names none, and on a named file that does not exist; whether
-that test fails without the patch stays a review question.
+A patch naming no test cannot be dropped, shrunk or merged — give it one first. `test:series` check
+5 fails a patch that names none and a named file that does not exist; whether that test fails
+without the patch stays a review question.
 
-Spend the effort where upstream actually moved:
+Spend the effort where upstream actually moved. `quilt files -a` is the whole list that matters —
+an overlay path has no upstream counterpart, so upstream cannot have moved it:
 
 ```bash
 git -C lib/orca diff <oldpin>..<newtag> --stat -- $(quilt files -a \
   | sed 's|^lib/orca/||' | sort -u | tr '\n' ' ')
 ```
-
-`quilt files -a` is the whole list that matters here: an overlay path has no upstream counterpart,
-so upstream cannot have moved it.
 
 Apply in order; the first match wins.
 
@@ -113,24 +105,27 @@ Apply in order; the first match wins.
    test and its *To test* repro there. The test is an overlay file, so copy the overlay in or the
    probe cannot find it. Green on bare upstream means upstream shipped it: delete the `.diff`,
    remove its line from `patches/series`, and record the probe in `CHANGELOG.md`.
+
    ```bash
-   git -C lib/orca worktree add --detach .cache/probe <newtag>
+   # Absolute: `git -C` resolves a relative path against lib/orca, not the root.
+   git -C lib/orca worktree add --detach "$PWD/.cache/probe" <newtag>
    mise run overlay --into .cache/probe
    ```
-2. **Shrink** — the probe fails, but the new tag has a mechanism this patch reimplements. Look for
-   one in `.cache/probe` before assuming there is none: `git -C lib/orca diff <oldtag>..<newtag>
-   --stat -- src/` names where upstream moved, and `git -C .cache/probe grep -n '<words>'` searches
-   what it moved to. Rewrite to call upstream's, delete one hunk group at a time, re-run the test
-   after each; anything removable with the test green was dead weight.
+
+2. **Shrink** — the probe fails, but the new tag has a mechanism this patch reimplements. Find it
+   before assuming there is none: `git -C lib/orca diff <oldtag>..<newtag> --stat -- src/` names
+   where upstream moved, `git -C .cache/probe grep -n '<words>'` searches what it moved to. Rewrite
+   to call upstream's, delete one hunk group at a time, re-run the test after each.
 3. **Merge** — two patches share symbols in one capability and neither test passes without the
    other. Two patches whose tests each pass alone are two capabilities sharing a file.
 4. **Keep** — `quilt push` it and `quilt refresh` if `mise run test:series` flagged it.
 
-`mise run bump` restacks the series onto a new tag and stops at the first patch that will not apply.
-It decides nothing: every verdict above is still yours to make.
+`VERSION=<tag> mise run bump` restacks the series onto a new tag and stops at the first patch that
+will not apply. It decides nothing. It also fails on a tag that ships a file at an overlay path —
+that collision is a finding, not a workspace problem.
 
 ## Evidence status
 
 Name matching, graph queries and `quilt graph` edges say where to look. Whether a patch is still
-needed is settled by running its test. `quilt annotate` is different in kind: it is exact ownership
-from `.pc/`, so act on it directly.
+needed is settled by running its test. `quilt annotate` is exact ownership from `.pc/` — act on it
+directly.

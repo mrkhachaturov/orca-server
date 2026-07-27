@@ -25,8 +25,7 @@ describe('resolveOpenInUrl', () => {
     expect(resolveOpenInUrl('https://e.com/fixed', WORKTREE)).toBe('https://e.com/fixed')
   })
 
-  // Why: these templates can come from the runtime's settings store, which a host operator seeds.
-  // A non-web scheme would turn a menu click into script execution in the client.
+  // These templates can arrive seeded from the runtime's settings store.
   it('refuses javascript: and data: URLs', () => {
     expect(resolveOpenInUrl('javascript:alert(1)//{path}', WORKTREE)).toBeNull()
     expect(resolveOpenInUrl('data:text/html,<script>alert(1)</script>', WORKTREE)).toBeNull()
@@ -51,9 +50,8 @@ describe('resolveOpenInUrl', () => {
   })
 })
 
-// Why this exists separately from resolveOpenInUrl: menus decide whether to enable an item while
-// rendering, where no worktree path is in scope. Without a path-free check a hostile or malformed
-// template renders enabled and only fails on click.
+// Separate from resolveOpenInUrl because menus decide enabledness while rendering, where no
+// worktree path is in scope.
 describe('isOpenInUrlTemplateUsable', () => {
   it('accepts templates that would navigate', () => {
     expect(isOpenInUrlTemplateUsable('https://cs.example.com/?folder={path}')).toBe(true)
@@ -74,8 +72,7 @@ describe('isOpenInUrlTemplateUsable', () => {
     expect(isOpenInUrlTemplateUsable('//evil.example.com/{path}')).toBe(false)
   })
 
-  // Why: substitution is encodeURIComponent, which cannot produce a scheme or an authority, so
-  // the probe path and a real path must always agree.
+  // Substitution is encodeURIComponent, which cannot produce a scheme or an authority.
   it('agrees with resolveOpenInUrl for a real worktree path', () => {
     for (const template of [
       'https://cs.example.com/?folder={path}',

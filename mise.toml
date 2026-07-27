@@ -1,39 +1,52 @@
-# Host toolchain. The AppImage itself is built in a hermetic Docker sandbox
-# (Dockerfile), so the host needs only light tooling.
-#
-# quilt is deliberately absent: it is in neither the mise registry nor the pkgx
-# pantry. Install it the way code-server does — `brew install quilt` on macOS,
-# `apt-get install quilt` on Debian/Ubuntu. It is an authoring tool only; the
-# build applies the series with `git apply`, so only the upstream-bump workflow
-# needs it in CI.
+# quilt is absent on purpose — in neither the mise registry nor the pkgx pantry.
+# `brew install quilt` / `apt-get install quilt`.
 min_version = "2026.7.12"
 
+[settings]
+lockfile = true
+
+# Owned by flint: `flint run --fix flint-setup` rewrites this table. A linter is
+# activated by its mise registry SHORT name — `aqua:mvdan/sh` installs the same
+# binary as `shfmt` but leaves the check inactive.
 [tools]
-jq = "1.8.2"         # reads the pinned Orca version out of lib/orca/package.json
-bats = "1.14.0"      # test/scripts — series integrity
-"npm:prettier" = "3.9.6" # formats markdown, yaml and json
-"npm:doctoc" = "2.5.0"   # generates the tables of contents in docs/
-shellcheck = "0.11.0" # the lint:shell task
-ruff = "0.16.0"      # lints the agent tooling under .claude/skills/
+bats = "1.14.0"
+hk = "1.53.0"
+jq = "1.8.2"
+node = "24.18.0"
+"npm:doctoc" = "2.5.0"
+pkl = "0.32.1"
+
+# Linters
+actionlint = "1.7.12"
+"aqua:grafana/flint" = "0.22.9"
+"aqua:owenlamont/ryl" = "0.21.0"
+hadolint = "2.14.0"
+rumdl = "0.2.43"
+shellcheck = "0.11.0"
+shfmt = "3.13.1"
+taplo = "0.10.0"
+zizmor = "1.28.0"
+
+[env]
+HK_MISE = 1 # run hk steps through `mise x`
 
 [hooks]
 enter = ["mise install"]
+postinstall = "hk install --mise"
 
-# --- Aggregates -------------------------------------------------------------
-# Leaf tasks are scripts under .mise/tasks/, auto-discovered — a subdirectory
-# namespaces them with a colon. Only the DAGs live here, so adding a task means
-# adding a file, not editing this document.
+# Leaf tasks are scripts under .mise/tasks/, auto-discovered. Only the DAGs live here.
+
+[tasks.lint]
+description = "Every generic file type — shell, markdown, yaml, toml, Dockerfile, workflows"
+run = "flint run --full"
 
 [tasks."check:gates"]
 description = "The gates that only read the tree — safe in parallel"
-depends = ["test:types", "test:unit", "test:scope", "lint:shell"]
+depends = ["test:types", "test:unit", "test:scope", "lint"]
 
 [tasks.check]
 description = "Everything that gates a push"
-# test:series pops and pushes the whole series as part of what it checks, so it
-# mutates the tree the other gates are reading. Run it alone, reassemble, then
-# parallelise the rest. Running it inside the parallel group leaves the series
-# half-applied and the other gates fail against a tree that was never broken.
+# test:series mutates the tree the other gates read, so it runs alone first.
 run = ["mise run test:series", "mise run up", "mise run check:gates"]
 
 [tasks.ci]

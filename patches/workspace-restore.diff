@@ -1,30 +1,20 @@
 Restore the web client's last active workspace after a restart
 
 After a workspace restart the tile lands on Landing - "Select a workspace from
-the sidebar to begin" - even though the sidebar lists every worktree. Upstream's
-paired-client session read already restores this from `ui.lastActiveRepoId` and
-`ui.lastActiveWorktreeId`, but nothing anywhere writes those two fields: the
-producer was never implemented, on desktop or on web, so the boot session is
-empty and Landing renders.
+the sidebar to begin" - even though the sidebar lists every worktree.
 
+Upstream's paired-client session read already restores this from
+`ui.lastActiveRepoId` and `ui.lastActiveWorktreeId`, but nothing anywhere writes
+those two fields: the producer was never implemented, on desktop or on web.
 `rememberWebActiveWorkspace` records the pointer from the web session adapter
-through the existing `ui.set` RPC, which persists into the host's own `ui` slice
-- so a browser with empty storage, or a different browser entirely, still
-restores. Only the `local` partition is read, the write is memoized so it fires
-on change rather than on every session write, and a failed RPC drops the memo so
-the next write retries. `getStoredWorkspaceSession` falls back to the browser's
-sanitized copy when the host pointer is absent.
-
-The pointer is built from the keys the caller actually sent. One of the four
-call sites is `session.patch`, which passes a raw `Partial`, so coercing an
-absent key to null would clear the other half - switching worktree would erase
-the repo id, and the restore's `ui.lastActiveRepoId ?? localSession.activeRepoId`
-fallback cannot fall through a stored null, only an absent one. The unchanged
-half is carried forward from the memo, or from browser storage when the memo has
-been dropped.
-
-The browser copy is written before the active-environment check on purpose: it
-is this client's own UI state, and a client that is not currently paired should
+through the existing `ui.set` RPC, which persists into the host's own `ui`
+slice, so a browser with empty storage still restores;
+`getStoredWorkspaceSession` falls back to the browser's sanitized copy when the
+host pointer is absent. The pointer is built from the keys the caller actually
+sent - `session.patch` passes a raw `Partial`, and coercing an absent key to
+null would clear the other half, since the restore's fallback cannot fall
+through a stored null - so the unchanged half is carried forward. The browser
+copy is written before the active-environment check: an unpaired client should
 still reopen where it left off.
 
 To test, open a worktree in the tile, restart the workspace, and reload: that

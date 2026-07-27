@@ -2,16 +2,9 @@
 #MISE description="Name the owner of a path: overlay, patch, or upstream"
 #MISE dir="{{config_root}}"
 
-# Who owns this file — the overlay, a patch, or upstream alone?
-#
-#   mise run owner src/shared/open-in-url-template.ts
-#   mise run owner lib/orca/src/shared/types.ts
-#
-# `quilt annotate` cannot answer this. On a file no patch owns it exits 0 and
-# prints the file with no attribution, which is indistinguishable from an
-# unmodified upstream file — so an overlay file reads as upstream's. This script
-# checks both owners and says which, and defers to `quilt annotate` for the
-# line-level answer when a patch is involved.
+# Not `quilt annotate`: on a file no patch owns it exits 0 with no attribution,
+# which is indistinguishable from an unmodified upstream file — so an overlay
+# file reads as upstream's.
 
 set -Eeuo pipefail
 
@@ -23,8 +16,7 @@ function main() {
     return 1
   fi
 
-  # Accept any of the three ways a path gets written around here, and reduce to
-  # one form: relative to lib/orca.
+  # Reduce all three accepted spellings to one: relative to lib/orca.
   local rel=${arg#./}
   rel=${rel#lib/orca/}
 
@@ -34,7 +26,7 @@ function main() {
     echo "overlay   $rel"
     echo "          ours entirely — upstream has no version of it."
     echo "          edit it here; the copy under lib/orca/ is build output."
-    found=1
+    found=$((found + 1))
   fi
 
   local owners
@@ -47,7 +39,7 @@ function main() {
     echo "$owners" | sed 's/^/          /'
     echo "          exists upstream; quilt owns the change. Line-level:"
     echo "          quilt annotate lib/orca/$rel"
-    found=1
+    found=$((found + 1))
   fi
 
   if [ "$found" -eq 0 ]; then

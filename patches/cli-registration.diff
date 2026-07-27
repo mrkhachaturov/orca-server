@@ -2,17 +2,15 @@ Register the Orca CLI from the web client
 
 Every agent-skill setup card (Orchestration, Browser Use, Computer Use, Linear,
 Ephemeral VMs, Mobile Emulator, Settings > CLI) warned "Orca CLI registration is
-unavailable" and could never register `orca-ide`, because `createCliApi()` in
-the web preload was a hardcoded `supported:false` stub. The terminal those
-cards open runs on the connected server, where the CLI genuinely exists.
+unavailable" and could never register `orca-ide`.
 
-Three runtime RPC methods - `cli.getInstallStatus`, `cli.install` and
-`cli.remove` - reuse the exact `CliInstaller` behind the desktop IPC handlers,
-with the same shell-path hydration so `pathConfigured` matches what a PTY sees.
-`install` and `remove` mutate the host and `getInstallStatus` probes it, so
-none of the three is on `MOBILE_RPC_METHOD_ALLOWLIST`: a paired phone must never
-register or remove host commands, and the status probe rides the same gate
-rather than earning a separate one.
+`createCliApi()` in the web preload was a hardcoded `supported:false` stub,
+though the terminal those cards open runs on the connected server where the CLI
+exists. Three runtime RPC methods - `cli.getInstallStatus`, `cli.install` and
+`cli.remove` - reuse the `CliInstaller` behind the desktop IPC handlers, with
+the same shell-path hydration so `pathConfigured` matches what a PTY sees. None
+is on `MOBILE_RPC_METHOD_ALLOWLIST`: a paired phone must never register or
+remove host commands.
 
 To test, open Settings > CLI in the tile, register the CLI, then run `orca-ide`
 in a terminal on the workspace. Covered by `cli.test.ts` and

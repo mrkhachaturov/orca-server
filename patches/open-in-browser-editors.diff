@@ -1,19 +1,20 @@
 Open a worktree in a browser editor
 
 In the tile every "Open in" entry is disabled ("Local only"), so there is no way
-to open a worktree in an editor at all. An entry could only be a local shell
-command, which would spawn a process on this machine against a path that lives
-on another one, so the runtime disables all of them whenever a runtime
-environment is set - which it always is for a web client.
+to open a worktree in an editor at all.
 
-This adds an optional `url` to `OpenInApplication`, with `{path}` substituted by
-the worktree's absolute path. A browser editor served by the host that owns the
+An entry could only be a local shell command, which would spawn a process on
+this machine against a path that lives on another one, so the runtime disables
+all of them whenever a runtime environment is set - always, for a web client.
+This adds an optional `url` to `OpenInApplication` with `{path}` substituted by
+the worktree's absolute path: a browser editor served by the host that owns the
 path has neither problem, so URL entries skip the guards and open through
-`shell.openUrl` on desktop and web alike. Nothing deployment-specific enters
-Orca: the slug and domain live in the template string the operator writes.
-Templates are restricted to http and https, entries are seedable from the
-runtime and editable in Settings, and both "Open in" menus draw them from one
-entry model so a URL row cannot render enabled in one and dead in the other.
+`shell.openUrl` on desktop and web alike. Templates are restricted to http and
+https, entries are seedable from the runtime and editable in Settings, and a row
+carrying a URL always gets the full editor even when its id or label matches a
+preset, or the URL that decides what it opens would be hidden and unclearable.
+Rendering a URL row issues a favicon request to `www.google.com`, which is
+upstream's existing behaviour for presets.
 
 To test, add a Web URL entry in Settings > Open In Apps and open a worktree with
 it; then seed the same entry from the runtime and confirm a fresh browser gets
@@ -21,16 +22,6 @@ it. Covered by `open-in-url-template.test.ts`, `open-in-applications.test.ts`,
 `OpenInMenuSetting.test.ts`, `OpenInMenuRow.test.tsx`,
 `WorktreeOpenInMenu.test.tsx`, `external-editor-open-capability.test.ts`,
 `client-ui.test.ts` and `runtime-seeded-settings.test.ts`.
-
-A row that carries a URL always gets the full editor, even when its id or label
-matches a preset: collapsing it to the command field would hide the URL that
-actually decides what the row opens, and leave it unclearable. `OpenInMenuRow`
-covers both sides of that gate.
-
-Note for a reader weighing this for upstream: rendering a URL row issues a
-favicon request to `www.google.com`. That is upstream's existing behaviour for
-presets; this patch extends it to URL rows, which are exactly the rows a
-self-hosted deployment adds.
 
 Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
 ===================================================================

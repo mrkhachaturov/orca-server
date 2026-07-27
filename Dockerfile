@@ -1,39 +1,37 @@
 # syntax=docker/dockerfile:1
-# Builds the patched Orca and EXPORTS a .AppImage. Nothing ships as an image —
-# the final `export` stage is copied out with `buildx --output type=local`.
-#
-# Docker is only a hermetic build sandbox. The base is Debian bookworm
-# (glibc 2.36), a floor at or below the Debian hosts this runs on; building on
-# whatever the CI runner happens to be would tie the AppImage's glibc to it.
-#
-# The build consumes `lib/orca` WITH THE SERIES APPLIED AND THE OVERLAY COPIED
-# IN — run `mise run up` first, or `mise run build`, which does that itself.
-# `COPY lib/orca/` takes the working tree as it finds it, so a missing overlay
-# builds an image without our own source and reports success. It deliberately
-# does NOT clone upstream itself: the submodule commit is the single pin for
-# which Orca this is, and a second clone inside the build could disagree with it.
-#
-# electron-builder 26's default AppImage toolset is a STATIC runtime (bundled
-# mksquashfs + a prepended runtime binary) — so the build needs no FUSE and no
-# appimagetool, and runs unprivileged in CI.
+# Entry point is `mise run build`: `COPY lib/orca/` takes the tree as it finds
+# it, so a tree missing the series or the overlay builds and succeeds anyway.
 
 # ── builder ────────────────────────────────────────────────────────────────
-# Mirrors Orca's own build env: node + the toolchain electron-builder and the
-# single native dep (node-pty) need. node and pnpm are pinned to what upstream
-# declares (`engines.node`, `packageManager`) — a newer pnpm breaks the frozen
-# lockfile, a newer node is not what upstream builds against.
-FROM node:24-bookworm AS builder
+# Ubuntu 24.04 is what upstream builds Linux on (release-cut.yml).
+FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS builder
 
 ARG VERSION
 ARG PNPM_VERSION=10.24.0
+ARG NODE_VERSION=24.18.0
+ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# pipefail, so a bad checksum below cannot be masked by the pipe succeeding.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# unzip: upstream's install-electron-package-binary.mjs shells out to it.
+# libasound2 is virtual on noble — the real package carries the t64 suffix, and
+# `apt-cache show` succeeds for either, so only a dry-run install tells you.
+#
+# Ubuntu's archive drops superseded versions, so a version pin here breaks at
+# the next point release; the FROM digest is the pin.
+# hadolint ignore=DL3008
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    xz-utils \
+    unzip \
     build-essential \
     git \
-    libasound2 \
+    libasound2t64 \
     libatk-bridge2.0-0 \
     libatspi2.0-0 \
     libdrm2 \
@@ -51,35 +49,50 @@ RUN apt-get update \
     python3 \
   && rm -rf /var/lib/apt/lists/*
 
+RUN case "${TARGETARCH}" in \
+    amd64) narch=x64 ;; \
+    arm64) narch=arm64 ;; \
+    *) echo >&2 "unsupported TARGETARCH: ${TARGETARCH}" && exit 1 ;; \
+  esac \
+  && tarball="node-v${NODE_VERSION}-linux-${narch}.tar.xz" \
+  && base="https://nodejs.org/dist/v${NODE_VERSION}" \
+  && curl -fsSLO "${base}/${tarball}" \
+  && curl -fsSL "${base}/SHASUMS256.txt" -o SHASUMS256.txt \
+  && grep " ${tarball}\$" SHASUMS256.txt | sha256sum -c - \
+  && tar -xJf "${tarball}" -C /usr/local --strip-components=1 --no-same-owner \
+  && rm "${tarball}" SHASUMS256.txt \
+  && node --version && npm --version
+
 RUN corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
 
 WORKDIR /src
 COPY lib/orca/ /src/
 
-# Product identity. Kept out of the patch series on purpose: electron-builder's
-# `extends` deep-merges this over upstream's config, so the rename costs nothing
-# to restack on an upstream bump. See the file for what is and is not renamed.
-COPY ci/build/electron-builder.overlay.cjs /src/electron-builder.orca-server.cjs
+# Product identity, kept out of the series so a bump has nothing to restack.
+COPY build/electron-builder.overlay.cjs /src/electron-builder.orca-server.cjs
 
-# Frozen lockfile keeps the build reproducible against upstream's committed lock.
 RUN pnpm install --frozen-lockfile
 
-# build:desktop = typecheck (which is what validates the series) + relay + cli +
-# electron-vite + web. Then rebuild node-pty against Electron's ABI and package a
-# Linux AppImage.
+# build:desktop typechecks, which is what validates the series.
 RUN pnpm build:desktop \
   && pnpm ensure:electron-runtime \
   && pnpm exec electron-builder --config electron-builder.orca-server.cjs --linux AppImage
 
-# Stage the single .AppImage under a predictable, versioned name for release.
+# The suffix is `uname -m`, not Docker's name, hence the translation.
+ARG TARGETARCH
 RUN mkdir -p /out \
-  && f="$(ls dist/*.AppImage | head -1)" \
+  && case "${TARGETARCH}" in \
+    amd64) arch=x86_64 ;; \
+    arm64) arch=aarch64 ;; \
+    *) echo >&2 "unsupported TARGETARCH: ${TARGETARCH}" && exit 1 ;; \
+  esac \
+  && f="$(find dist -maxdepth 1 -name '*.AppImage' -print -quit)" \
   && test -n "$f" \
-  && cp "$f" "/out/orca-server-${VERSION}-x86_64.AppImage" \
-  && ls -l /out
+  && cp "$f" "/out/orca-server-${VERSION}-${arch}.AppImage" \
+  && find /out -type f -exec ls -l {} +
 
 # ── export ─────────────────────────────────────────────────────────────────
-# `buildx --output type=local,dest=./dist` writes THIS stage's filesystem to
-# ./dist — i.e. just the .AppImage (mode 0755 preserved). No runtime image.
+# `buildx --output type=local` writes this stage's filesystem out. Nothing here
+# is ever pushed as an image.
 FROM scratch AS export
 COPY --from=builder /out/ /

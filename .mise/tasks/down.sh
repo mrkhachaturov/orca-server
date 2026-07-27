@@ -3,7 +3,7 @@
 #MISE dir="{{config_root}}"
 set -Eeuo pipefail
 
-# Both halves are needed. The overlay's copies are untracked in the submodule, so
-# popping the series leaves them behind and the tree is not pristine.
+# Both halves: the overlay's copies are untracked in the submodule, so a pop
+# leaves them behind.
 quilt pop -a > /dev/null 2>&1 || true
 mise run overlay --clean

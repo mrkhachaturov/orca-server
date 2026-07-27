@@ -3,8 +3,7 @@ import { resolveFloatingWorkspaceRuntimeEnvironmentId } from './floating-workspa
 
 describe('resolveFloatingWorkspaceRuntimeEnvironmentId', () => {
   it('keeps the floating workspace local on the desktop app', () => {
-    // Why: the desktop floating workspace is a deliberate local scratch surface —
-    // focusing a remote runtime must not move the user's notes pad onto it.
+    // A deliberate local scratch surface: focusing a remote runtime must not move it.
     expect(
       resolveFloatingWorkspaceRuntimeEnvironmentId({
         isWebClient: false,
@@ -14,7 +13,6 @@ describe('resolveFloatingWorkspaceRuntimeEnvironmentId', () => {
   })
 
   it('owns the floating workspace with the connected runtime in the web client', () => {
-    // Why: the browser has no local shell, webview or file dialog to own it.
     expect(
       resolveFloatingWorkspaceRuntimeEnvironmentId({
         isWebClient: true,
@@ -24,8 +22,8 @@ describe('resolveFloatingWorkspaceRuntimeEnvironmentId', () => {
   })
 
   it('stays local in a web client with no runtime to own it', () => {
-    // Why: a null owner fails honestly through the existing local path instead of
-    // addressing RPCs at an environment that is not there.
+    // A null owner falls through the existing local path rather than addressing RPCs at an
+    // environment that is not there.
     expect(
       resolveFloatingWorkspaceRuntimeEnvironmentId({
         isWebClient: true,
@@ -56,10 +54,8 @@ describe('resolveFloatingWorkspaceRuntimeEnvironmentId', () => {
   })
 
   it('falls back to the only saved environment when the browser has chosen none', () => {
-    // Why: an unset preference in a browser is not "local" — there is no local shell to own
-    // the floating workspace, and the page was served by the one environment on the list.
-    // Resolving it here rather than defaulting the stored setting keeps
-    // `activeRuntimeEnvironmentId` meaning "the user chose", so an explicit null stays null.
+    // Resolved here rather than by defaulting the stored setting, so
+    // `activeRuntimeEnvironmentId` keeps meaning "the user chose".
     expect(
       resolveFloatingWorkspaceRuntimeEnvironmentId({
         isWebClient: true,
@@ -84,7 +80,6 @@ describe('resolveFloatingWorkspaceRuntimeEnvironmentId', () => {
         runtimeEnvironments: []
       })
     ).toBeNull()
-    // Desktop keeps its local floating workspace even with exactly one runtime saved.
     expect(
       resolveFloatingWorkspaceRuntimeEnvironmentId({
         isWebClient: false,

@@ -1,8 +1,5 @@
-/* The pointer the web client restores its workspace from.
- *
- * `session.patch` hands rememberWebActiveWorkspace a raw Partial, so the pointer must be built
- * from the keys the patch actually carries. The restore path reads
- * `ui.lastActiveRepoId ?? localSession.activeRepoId`, which cannot fall through a stored null. */
+// `session.patch` hands rememberWebActiveWorkspace a raw Partial, and the restore path reads
+// `ui.lastActiveRepoId ?? localSession.activeRepoId`, which cannot fall through a stored null.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 
@@ -127,7 +124,6 @@ describe('web active-workspace pointer under a partial session patch', () => {
     const { installWebPreloadApi } = await import('./web-preload-api')
     installWebPreloadApi()
 
-    // 1. A full session write establishes both pointers on the host.
     await globals.window.api.session.set({
       activeRepoId: 'repo-1',
       activeWorktreeId: 'repo-1::/w/feature'
@@ -139,13 +135,12 @@ describe('web active-workspace pointer under a partial session patch', () => {
       lastActiveWorktreeId: 'repo-1::/w/feature'
     })
 
-    // 2. A partial patch that only moves the worktree, as switching worktrees does.
+    // A partial patch, as switching worktrees does.
     await globals.window.api.session.patch({
       activeWorktreeId: 'repo-1::/w/other'
     } as never)
     await waitForCall(runtimeCalls, 'ui.set', 2)
 
-    // 3. The repo pointer must survive: the patch said nothing about the repo.
     const uiSetCalls = runtimeCalls.filter((call) => call.method === 'ui.set')
     const latest = uiSetCalls[uiSetCalls.length - 1]?.params as {
       lastActiveRepoId: string | null
@@ -159,7 +154,7 @@ describe('web active-workspace pointer under a partial session patch', () => {
 
   it('writes the pointer into localStorage before any RPC, with no active environment', async () => {
     const globals = installBrowserGlobals()
-    // Deliberately no stored runtime environment: requireActiveEnvironmentOrNull() is null.
+    // No stored runtime environment, so requireActiveEnvironmentOrNull() is null.
     const { installWebPreloadApi } = await import('./web-preload-api')
     installWebPreloadApi()
 

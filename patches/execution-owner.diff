@@ -1,20 +1,18 @@
 Own the web client's execution without a local machine
 
-The tile behaved as if a laptop sat behind it. The floating terminal, the
-Settings skill terminal and floating markdown notes all failed as if no runtime
-existed - `pty.spawn` rejecting with "Local PTYs are unavailable in the web
-client", or "No runtime worktree owns <floating>/.orca/templates" - while the
-server showed Connected the whole time.
+The floating terminal, the Settings skill terminal and floating markdown notes
+all failed in the tile as if no runtime existed - "Local PTYs are unavailable in
+the web client", "No runtime worktree owns <floating>/.orca/templates" - while
+the server showed Connected throughout.
 
 Ownership resolution reads "no `runtimeEnvironmentId`" as "therefore this
-machine", which is correct for a laptop driving a remote runtime and impossible
-in a browser the runtime itself serves. It is now decided at the resolvers every
-surface already routes through: the floating workspace runs on the connected
-runtime, a floor covers the three paths that never reach `pty-connection`'s
-fallback, and with no Active Server chosen it resolves to the single saved
-environment. The environment catalog is a localStorage list, so it is split out
-of the network status probes and awaited in the browser - otherwise the boot
-window resolves to local, the one answer a browser can never act on.
+machine", which is impossible in a browser the runtime itself serves. It is now
+decided at the resolvers every surface already routes through: the floating
+workspace runs on the connected runtime, a floor covers the three paths that
+never reach `pty-connection`'s fallback, and with no Active Server chosen it
+resolves to the single saved environment. The environment catalog is a
+localStorage list, so it is awaited in the browser rather than left to the
+network status probes - otherwise the boot window resolves to local.
 
 To test, with no Active Server chosen, open the floating terminal, a Settings
 skill terminal and a floating markdown note in the tile. Covered by

@@ -1,6 +1,4 @@
-# The build context is the patched lib/orca submodule and nothing else. Keep it
-# lean: everything below is either irrelevant to packaging or would silently
-# make the build depend on host state.
+# The build context is the patched lib/orca submodule and nothing else.
 .git
 .github
 .cache
@@ -8,17 +6,17 @@
 dist
 docs
 test
-ci
-!ci/build/electron-builder.overlay.cjs
+build/
+!build/electron-builder.overlay.cjs
 patches
 *.md
+.mise/
 mise.toml
 mise.local.toml
 package.json
 .claude
 .mcp.json
 
-# The submodule's gitlink and any host-side install.
 lib/orca/.git
 **/node_modules
 **/.DS_Store

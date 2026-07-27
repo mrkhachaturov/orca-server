@@ -3,27 +3,15 @@
 #MISE dir="{{config_root}}"
 #MISE depends=["up"]
 
-# Run the acceptance tests the series and the overlay carry.
-#
-# Our tests exercise Orca's internals, so they run under Orca's own vitest inside
-# Orca's tree — code-server can test its src/ standalone because it wraps VS Code
-# rather than injecting into it, and we cannot.
-#
-# They come from two places, for the same reason the code does: a test that adds
-# a new file lives in the overlay, a test that modifies an upstream test file
-# lives in the patch that modifies it. The list is derived from both, so adding
-# either kind picks it up here automatically.
-#
-# Scoped on purpose. Upstream's full suite is not green under parallel load even
-# on a pristine tag, so running all of it would report failures that are not
-# ours. To judge a suspected upstream regression, run `pnpm test` inside
-# lib/orca on the pristine tag first and compare.
+# Scoped on purpose: upstream's full suite is not green under parallel load even
+# on a pristine tag. To judge a suspected upstream regression, compare against
+# `pnpm test` inside lib/orca on the pristine tag.
 
 set -Eeuo pipefail
 
 main() {
 
-  source ./ci/lib.sh
+  source ./.mise/lib.sh
 
   if [[ ! -f lib/orca/package.json ]]; then
     echo >&2 "lib/orca is empty — run: git submodule update --init"
@@ -38,10 +26,8 @@ main() {
     exit 1
   fi
 
-  # Every *.test.ts / *.test.tsx the series touches or the overlay owns,
-  # deduplicated and made relative to lib/orca. Overlay paths already are.
   local tests
-  tests="$( {
+  tests="$({
     grep -h '^+++ orca-server/lib/orca/' patches/*.diff \
       | sed 's|^+++ orca-server/lib/orca/||'
     [ -d src ] && find src -type f

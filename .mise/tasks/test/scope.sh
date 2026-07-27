@@ -4,12 +4,11 @@
 #MISE depends=["up"]
 set -euo pipefail
 
-# Run the tests that sit beside the files the series touches, not only the tests
-# it ships. A patch breaks tests it never names: one import at module scope took
-# out 411 tests while the series' own tests stayed green.
+# A patch breaks tests it never names: one module-scope import took out 411 while
+# the series' own tests stayed green.
 main() {
 
-  source ./ci/lib.sh
+  source ./.mise/lib.sh
 
   local expected applied
   expected="$(grep -cv '^[[:space:]]*\(#\|$\)' patches/series)"
@@ -19,11 +18,10 @@ main() {
     exit 1
   fi
 
-  # Both owners count. A patch modifies an upstream file; the overlay adds one of
-  # ours. Either way the tests beside it are in scope, and a directory that holds
-  # only overlay files would otherwise get no coverage at all.
+  # Both owners: a directory holding only overlay files would otherwise get no
+  # coverage at all.
   local dirs
-  dirs="$( {
+  dirs="$({
     quilt files -a | sed 's|^lib/orca/||'
     [ -d src ] && find src -type f
   } | grep -E '^src/.*\.tsx?$' | xargs -n1 dirname | sort -u)"
@@ -35,7 +33,7 @@ main() {
 
   pushd lib/orca
 
-  # Direct neighbours only. A directory handed to vitest is a path substring, so
+  # Direct neighbours only: a directory handed to vitest is a path substring, so
   # src/main would pull in every subtree below it — 79% of upstream's suite.
   local files
   files="$(while read -r d; do

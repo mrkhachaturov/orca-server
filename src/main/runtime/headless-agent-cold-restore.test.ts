@@ -1,12 +1,5 @@
-/**
- * Headless cold restore: a persisted pane whose agent died with the host must relaunch against its
- * existing provider session, not a bare shell.
- *
- * Live 2026-07-27: after a workspace restart the tile rendered the transcript in chat view, but the
- * composer wrote into a fresh `bash` — `bash: command not found: THIS`. Desktop relaunches with
- * resume flags from the renderer (`pty-connection.ts` coldRestoreStartup); `orca serve` has no
- * renderer, so the host must decide it from its own hook rows.
- */
+// Desktop relaunches a dead pane with resume flags from the renderer (`pty-connection.ts`
+// coldRestoreStartup); `orca serve` has no renderer, so the host decides from its own hook rows.
 import { describe, expect, it } from 'vitest'
 import type { AgentStatusIpcPayload } from '../../shared/agent-status-types'
 import { OrcaRuntimeService } from './orca-runtime'
@@ -49,9 +42,8 @@ function runtimeWithRows(rows: AgentStatusIpcPayload[]): Internals {
 
 describe('headless agent cold restore', () => {
   it('resolves the pane agent and provider session from the host hook rows', () => {
-    // Why: this is the decision desktop makes in its renderer. Without it the materialize path only
-    // launches an agent when tab.launchAgent is set -- null on every pane measured live -- so the
-    // pane gets a plain shell and chat writes into bash.
+    // Without this the materialize path only launches an agent when tab.launchAgent is set, which
+    // is null on every restored pane — so the pane gets a plain shell and chat writes into bash.
     const resolved = runtimeWithRows([hookRow()]).resolveHeadlessAgentColdRestore({
       parentTabId: TAB,
       leafId: LEAF
@@ -69,7 +61,7 @@ describe('headless agent cold restore', () => {
   })
 
   it('declines a non-resumable agent', () => {
-    // Why: getAgentResumeArgv has no resume form for these, so a "resume" would silently launch a
+    // getAgentResumeArgv has no resume form for these, so a "resume" would silently launch a
     // fresh session against the wrong transcript.
     expect(
       runtimeWithRows([hookRow({ agentType: 'cursor' })]).resolveHeadlessAgentColdRestore({
@@ -89,7 +81,7 @@ describe('headless agent cold restore', () => {
   })
 
   it('declines a legacy non-UUID leaf id', () => {
-    // Why: makePaneKey throws on a non-UUID leaf; the pane key would not match a hook row anyway.
+    // makePaneKey throws on a non-UUID leaf.
     expect(
       runtimeWithRows([hookRow()]).resolveHeadlessAgentColdRestore({
         parentTabId: TAB,

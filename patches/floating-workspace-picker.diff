@@ -1,36 +1,24 @@
 Pick a floating workspace directory from the web client
 
 In the tile, Settings > Floating Workspace > Terminal Directory's folder button
-did nothing - no picker, no error - and no directory could be applied. The
-desktop feature is three host operations the browser had a path for none of: a
-native OS dialog, the trust grant that dialog also performs, and a cwd
-resolution that only returns a custom path once it is trusted. The tile's
-floating terminals run on the workspace host, so all three must happen there.
+did nothing - no picker, no error - and no directory could be applied.
 
-Two runtime methods, `floatingWorkspace.resolveCwd` and `grantDirectory`, reuse
-the existing `ipc/floating-workspace-directory.ts` helpers, and the web client
-opens the existing `RemoteFileBrowser`, then grants and stores what was picked.
-Both authorize or mutate host state, so neither is on
-`MOBILE_RPC_METHOD_ALLOWLIST`.
-
-The grant is a precondition, not a courtesy: a refused directory is not stored
-and the server's own reason is shown. Storing one anyway would resolve to '',
-which the input renders as the configured path, so the pane would display a
-directory the server never authorised while the floating terminal opened
-somewhere else.
-
-Desktop is not left untouched, and the one change is deliberate.
-`getFloatingWorkspaceDirectoryInputValue` returns the configured path when the
-resolve has not answered yet, where upstream returned the empty resolve. Without
-it the field blanks between picking a directory and the round trip returning -
-imperceptible over desktop IPC, a visible flicker over a network hop. Desktop
-sees the same fallback, and only during that window, because a stored path is
-now always one the server accepted.
+The desktop feature is three host operations the browser had a path for none of:
+a native OS dialog, the trust grant that dialog also performs, and a cwd
+resolution that only returns a custom path once it is trusted. Two runtime
+methods, `floatingWorkspace.resolveCwd` and `grantDirectory`, reuse the existing
+`ipc/floating-workspace-directory.ts` helpers; the web client opens the existing
+`RemoteFileBrowser`, then grants and stores what was picked. Both mutate or
+authorize host state, so neither is on `MOBILE_RPC_METHOD_ALLOWLIST`. A refused
+directory is not stored, because an ungranted path resolves to '' and the input
+renders that as the configured path. Desktop changes once, deliberately:
+`getFloatingWorkspaceDirectoryInputValue` returns the configured path while the
+resolve is outstanding, or the field blanks visibly over a network hop.
 
 To test, pick a directory in Settings > Floating Workspace in the tile, confirm
-it is displayed back, then open a floating terminal and check its cwd; then pick
-one the server cannot grant and confirm the field does not change and the
-failure is reported. Covered by `floating-workspace.test.ts`,
+it is displayed back and check a floating terminal's cwd; then pick one the
+server cannot grant and confirm the field does not change and the failure is
+reported. Covered by `floating-workspace.test.ts`,
 `FloatingWorkspacePane.test.tsx`,
 `floating-workspace-directory-grant.test.ts` and
 `mobile-rpc-allowlist.test.ts`.

@@ -7,13 +7,9 @@ import type { GlobalSettings, OpenInApplication } from '../../../shared/types'
 import { translate } from '@/i18n/i18n'
 
 /**
- * The "Open in" entry model, shared by every menu that offers one.
- *
- * Why it lives outside the menu components: there are two of them — the worktree card's dropdown
- * and Source Control's file context menu — and they used to each derive an entry's icon and its
- * click arguments independently. When `url` was added, only one of them learned about it, so the
- * other rendered items that read as enabled and could only fail on click. Entry shape, enabled-
- * ness and icon are decided once, here.
+ * The "Open in" entry model, shared by the two menus that offer one — the worktree card dropdown
+ * and Source Control's file context menu. Shape, enabledness and icon are decided once here so
+ * the two cannot disagree about a field like `url`.
  */
 export type OpenInMenuEntry = {
   id: string
@@ -78,7 +74,6 @@ export function getOpenInEntryAvailability(
     : { disabled: false }
 }
 
-/** The icon for a menu entry — one implementation so the two menus cannot drift apart. */
 export function OpenInMenuEntryIcon({ entry }: { entry: OpenInMenuEntry }): React.JSX.Element {
   if (entry.target === 'file-manager') {
     return <FolderOpen className="size-3.5" />

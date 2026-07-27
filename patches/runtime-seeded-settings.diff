@@ -2,31 +2,24 @@ Seed appearance and experimental settings from the runtime
 
 A freshly provisioned workspace could not declare how its Orca looks or which
 features are on: every browser opening the tile started at stock defaults, and
-the same toggles got re-clicked after every workspace create. The web client
-keeps settings in localStorage, and of the 184 top-level `GlobalSettings` keys
-on `v1.4.156` it pulls exactly five from the runtime - `theme` and the
-`experimental*` flags are not among them, so writing `orca-data.json` on the
-workspace changed nothing.
+the same toggles got re-clicked after every workspace create.
 
-A shared allowlist of appearance and capability keys is now returned by
-`settings.get` and adopted exactly once, on a browser's first visit, when
-localStorage holds no settings blob. Nothing is written back and nothing is
-re-imposed on later loads, so these are defaults rather than policy. Per-device
-ergonomics (zoom, window bounds, font sizes) and credentials are excluded, and
-values route through the app's own normalizers instead of rules restated here.
+The web client keeps settings in localStorage, and of the 184 top-level
+`GlobalSettings` keys on `v1.4.156` it pulls exactly five from the runtime -
+`theme` and the `experimental*` flags are not among them, so writing
+`orca-data.json` on the workspace changed nothing. A shared allowlist of
+appearance and capability keys is now returned by `settings.get` and adopted
+exactly once, on a browser's first visit, when localStorage holds no settings
+blob; nothing is written back and nothing is re-imposed later, so these are
+defaults rather than policy. Per-device ergonomics and credentials are excluded.
+A load that never reached the store does not spend the first visit, so a browser
+whose first open happened offline still seeds on the next one.
 
 To test, set a seeded key in the workspace's `orca-data.json` and open the tile
 in a browser with no Orca localStorage; then change it in the UI and reload to
 confirm the workspace does not override the user. Covered by
-`runtime-seeded-settings.test.ts` for the key picker, and
-`web-preload-settings-seeding.test.ts` for the load path - the first-visit gate,
-the exclusions measured end to end, and that nothing is written back.
-
-A load that never reached the store does not spend the first visit: the blob
-stays absent and the next load seeds. That is the gate holding rather than
-leaking - a browser whose first open happened offline would otherwise be denied
-the workspace's declaration permanently, with no recovery short of clearing site
-data.
+`runtime-seeded-settings.test.ts` for the key picker and
+`web-preload-settings-seeding.test.ts` for the load path.
 
 Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================

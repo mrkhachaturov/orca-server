@@ -2,17 +2,16 @@
 .DS_Store
 node_modules
 
-# AppImage build export dir (buildx --output type=local)
+/.rumdl_cache
 /dist
 
 # Quilt's internal data.
 /.pc
 /patches/*.diff~
 
-# Local-only agent tooling: machine-specific paths, never the repo's contract.
-# The contract itself is AGENTS.md + CLAUDE.md, and .claude/skills/ ships with it;
-# only what depends on a local index or a local machine stays out.
+# Local-only agent tooling; the rest of .claude/ ships.
 /mise.local.toml
+/mise.local.lock
 /.mcp.json
 /CLAUDE.local.md
 /.claude/settings.local.json

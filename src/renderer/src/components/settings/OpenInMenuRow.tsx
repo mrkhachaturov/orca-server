@@ -32,9 +32,8 @@ export function OpenInMenuRow({
   const url = application.url ?? ''
   const hasUrl = url.trim() !== ''
   const preset = getOpenInAppPreset(application)
-  // Why a URL row is never treated as a preset: the collapsed preset editor offers only a command
-  // field, which would hide the URL that actually decides what this row opens. Any row carrying a
-  // URL gets the full editor, so the precedence is visible and the URL is clearable.
+  // A URL row is never a preset: the collapsed preset editor offers only a command field, which
+  // would hide the URL that actually decides what the row opens, and make it unclearable.
   const isPreset =
     preset !== null &&
     !hasUrl &&
@@ -57,7 +56,7 @@ export function OpenInMenuRow({
             </span>
           </div>
           <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-            {/* Why the URL comes first: when both are set the URL is what actually opens. */}
+            {/* URL first: when both are set the URL is what opens. */}
             {url.trim() ||
               application.command.trim() ||
               translate(
@@ -177,10 +176,8 @@ export function OpenInMenuRow({
             </div>
           </div>
 
-          {/* Why this field exists at all: a workspace reached through a browser has no local
-              command to run, so a browser-based editor (code-server, vscode-web) is the only
-              "Open in" target it can offer. A runtime can seed one, and without this field the
-              user could neither create one nor see the one they were given. */}
+          {/* A workspace reached through a browser has no local command to run, so a URL is the
+              only "Open in" target it can offer — including one the runtime seeded. */}
           {!isPreset && (
             <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">

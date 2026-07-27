@@ -2,26 +2,18 @@ Serve the web client behind a trusted proxy with no pairing prompt
 
 Stock `orca serve` delivers its pairing token only in the URL fragment, but a
 Coder tile URL is fixed at template-build time, so a stock tile lands on a
-"paste a pairing code" form. Trusted mode borrows code-server's trust model -
-bind the runtime WS listener to loopback and treat that bind as proof the proxy
-already authenticated - but not its mechanism. code-server's `--auth none`
-serves no credential at all; an Orca pairing offer carries `publicKeyB64`
-alongside `deviceToken` and is the channel's key material rather than an
-authorisation check, so `WebRuntimeClient` cannot be constructed without it. The
-credential can only be delivered differently, never skipped, so delivery moves
-from the URL fragment to a loopback-gated `GET /trusted-session`. E2EE is
-intact - `createPairingOffer` is reused unmodified and the client replaces only
-the transport endpoint.
+"paste a pairing code" form.
 
-The web client dials same-origin from `window.location`, so the tile needs no
-`--pairing-address`, and on `auth-failed` it re-probes and adopts a new offer.
-Trusted-session devices are named "Web session <date>" so the shared-access list
-reads honestly.
-
-The endpoint answers at exactly `/trusted-session` and nowhere else. A
-credential must not be reachable from an arbitrary path, least of all from under
-`/assets/`, and a deployment's URL shape belongs in the operator's proxy
-template rather than in a prefix this handler tries to guess.
+Trusted mode binds the runtime WS listener to loopback and treats that bind as
+proof the proxy already authenticated. The credential cannot simply be omitted:
+an Orca pairing offer carries `publicKeyB64` alongside `deviceToken` and is the
+channel's key material rather than an authorisation check, so `WebRuntimeClient`
+cannot be constructed without it. Delivery moves from the URL fragment to a
+loopback-gated `GET /trusted-session`, answering at exactly that path and
+nowhere else so a credential is never reachable from under `/assets/`;
+`createPairingOffer` is reused unmodified, so E2EE is intact. The client dials
+same-origin from `window.location`, so the tile needs no `--pairing-address`,
+and on `auth-failed` it re-probes and adopts a new offer.
 
 To test, open the workspace tile: the full Orca web UI should load with no
 pairing prompt. See `static-web-client-handler.test.ts` - the endpoint serves

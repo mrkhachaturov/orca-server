@@ -12,88 +12,85 @@ when_to_use: >-
 # Verify a patch
 
 ```bash
-mise run up            # apply the series, then copy src/ into lib/orca/src
 mise run test:types    # typecheck the assembled tree
 mise run test:series   # series integrity: 10 checks over patches/, series and the tree
 mise run test:unit     # the acceptance tests the series and the overlay carry
 mise run test:scope    # every test in the directories either owner touches
-mise run build         # up, typecheck again, then bundles and packages
-mise run test:e2e      # Linux/amd64 host only — see below
+mise run lint          # flint over the whole repo: shell, markdown, yaml, toml, Dockerfile, workflows
+mise run build         # assembles, typechecks inside the sandbox, bundles and packages
+mise run test:e2e      # Linux host only — see below
 ```
 
-`mise run check` runs `test:types`, the three suites and `lint:shell` — every gate above except the
-build and `test:e2e`. It sequences them itself: `test:series` pops and pushes the series, so it
-cannot share a tree with the gates reading it. All of them run in CI on every push. Run them
-locally to gate the push instead of learning from a red pipeline.
+`mise run check` is the first five: `test:series` alone, then `mise run up`, then `test:types`,
+`test:unit`, `test:scope` and `lint` in parallel. `test:series` pops and pushes the series, so it
+cannot share a tree with the gates reading it. `mise run ci` adds the build. Run `check` locally
+rather than learning from a red pipeline.
 
-**Two owners, one order.** `patches/` modifies files that exist upstream; `src/` — the overlay — is
-the files that do not, checked in plain and never in a patch. Both have to be in the tree before it
-means anything, so the order is always `quilt push -a` → `mise run overlay` → build or test, which
-is what `mise run up` does. `test:unit`, `test:scope` and `build` call the overlay themselves and
-derive their file lists from patches ∪ overlay, so a new file in either owner is picked up without
-editing a list. A hand-run `vitest` or `pnpm run typecheck:tsc` calls nothing.
-`mise run overlay --check` copies nothing and asserts the one thing the layout forbids: a path
-owned by both.
+hk's pre-push hook runs `test:series` and `lint:docs`; pre-commit runs diff-scoped flint plus
+`mise run overlay --check`. `mise run check` covers everything the hooks do not.
 
-**Typecheck first, and never skip it.** `vitest` transpiles and does not typecheck, so a whole
-green run proves nothing about whether the code compiles. This has already shipped a push where
-1161 tests passed locally and three files did not build. It is the cheapest gate and it fails
-fastest — run it before the suites, not after. Do not lean on `mise run build` to reach it for you.
+Each gate derives its file list from patches ∪ overlay, so a new file in either owner is picked up
+without editing a list. A hand-run `vitest` or `pnpm run typecheck:tsc` assembles nothing:
+`mise run up` first.
+
+**Run `test:types` first, and never skip it.** It is the cheapest gate and fails fastest; a push
+already shipped with 1161 tests passing locally and three files not building. Do not lean on
+`mise run build` to reach it for you.
 
 **What actually needs Linux:**
 
 | Step | On macOS |
 | --- | --- |
 | `mise run test:types` | runs anywhere |
-| `mise run build` | **runs** — Docker buildx emulates the pinned `linux/amd64` from `docker-bake.hcl`. Slow under QEMU on Apple Silicon, and emulation can fail for reasons that are not your change, so read a failure here sceptically. |
-| `mise run test:e2e` | **cannot run.** It extracts the AppImage and executes `squashfs-root/resources/bin/orca-ide` on the host, which is an x86_64 Linux ELF. Needs a Linux/amd64 host or a container. |
+| `mise run build` | **runs** — it builds `linux/<host arch>` in Docker, so on Apple Silicon that is a native `linux/arm64` build, and arm64 is a release target rather than a stand-in for amd64. `--platform linux/amd64` cross-builds under QEMU: slow, and a failure there can be emulation rather than your change. |
+| `mise run test:e2e` | **cannot run.** It extracts the AppImage and executes `squashfs-root/resources/bin/orca-ide` on the host, which is a Linux ELF. Needs a Linux host or container of the artifact's architecture. |
 
 Before the first local run: `mise run up`, then `cd lib/orca && pnpm install --frozen-lockfile`.
 
 ## When one fails
 
-**`test:series`** — a patch is stale or applies with fuzz. `quilt push` to that patch, `quilt
-refresh`, `quilt push -a`. Two of its 10 checks fail for other reasons: check 5 wants every patch
-header to name a test file, in backticks, that exists under `lib/orca/src` — a test that lives in
-the overlay is still the patch's, and the header is the only thing that says so. Check 10 wants
-every file in the submodule tree owned by a patch or the overlay; a file owned by neither was
-written before `quilt add` and is in nothing.
+**`test:series`** — a patch is stale or applies with fuzz: `quilt push` to that patch, `quilt
+refresh`, `quilt push -a`. Two of its 10 checks fail for other reasons. Check 5 wants every patch
+header to name a test file, in backticks, that exists under `lib/orca/src`. Check 10 wants every
+file in the submodule tree owned by a patch or the overlay; a file owned by neither was written
+before `quilt add` and is in nothing.
 
-**`test:unit`** — the patch's own acceptance test. This is the one that means your change is
-wrong.
+**`test:unit`** — the patch's own acceptance test. This one means your change is wrong.
 
 **Missing-module errors instead of assertion failures, in any suite** — the overlay is not in the
-tree, so everything that imports one of our files fails to resolve it, and it reads like a broken
-import you just wrote. `mise run overlay`, then re-run. Only ever happens to a hand-run
-`vitest` or typecheck; the tasks copy it in themselves.
+tree. `mise run overlay`, then re-run. Only happens to a hand-run `vitest` or typecheck.
 
 **`test:scope`** — a test the patch never names. Check for a value import from a hub module
-evaluated at module scope before anything else; that shape takes out whole directories. Upstream's
-suite is not green under parallel load, so run the same directories against the bare pinned tag
-before blaming the patch:
+evaluated at module scope first; that shape takes out whole directories. Upstream's suite is not
+green under parallel load, so run the same directories against the bare pinned tag before blaming
+the patch:
 
 ```bash
-git -C lib/orca worktree add --detach .cache/pristine "$(git -C lib/orca describe --tags)"
+# Absolute: `git -C` resolves a relative path against lib/orca, not the root.
+git -C lib/orca worktree add --detach "$PWD/.cache/pristine" "$(git -C lib/orca describe --tags)"
 cd .cache/pristine && pnpm install --frozen-lockfile
 pnpm exec vitest run --config config/vitest.config.ts <dirs>
 ```
 
-A failure that reproduces there is upstream's. Note it and move on rather than fixing it in a patch.
+A failure that reproduces there is upstream's. Note it and move on.
 
-**`test:e2e`** — the AppImage builds but does not serve. Its own output names which check failed:
+**`test:e2e`** — the AppImage builds but does not serve. Its output names which check failed:
 readiness on `GET /web-index.html`, or a listener on `0.0.0.0` meaning trusted-proxy did not engage.
 
-**`test:types`** — the first gate above, and re-run inside `mise run build`. The task clears the
-incremental info itself, because stale `tsbuildinfo` reports errors you fixed and hides ones you
-just wrote. A typecheck run by hand has to do it too, with
-`find config -name '*.tsbuildinfo' -delete` rather than `rm -f config/*.tsbuildinfo`: under zsh a
-glob with no match aborts the whole command chain, so the typecheck silently never runs and you
-read the empty output as success.
+**`lint`** — flint names the tool, the file and the line. Fix it there, or silence it there with an
+inline directive carrying the reason (`# shellcheck disable=SC2086`). `flint.toml` scopes what the
+linters may read; it is not where a finding gets quietened.
 
-A type error in a *test* is the common case, because vitest never sees it. Two that have shipped:
-a fixture naming a key that is not on the type (hidden by an `as T` cast, which disables
-excess-property checking), and a bare `vi.fn()` — `Mock<Procedure>` satisfies any prop, so a
-renamed prop still compiles. See `orca-write-test`.
+**`test:types`** — the first gate above, and re-run inside `mise run build`. The task clears the
+incremental info itself; stale `tsbuildinfo` reports errors you fixed and hides ones you just wrote.
+A hand-run typecheck must do it too, with `find config -name '*.tsbuildinfo' -delete` rather than
+`rm -f config/*.tsbuildinfo`: under zsh a glob with no match aborts the whole command chain, so the
+typecheck silently never runs and the empty output reads as success.
+
+A type error in a *test* is the common case, because vitest never sees it. Two that have shipped: a
+fixture naming a key that is not on the type (hidden by an `as T` cast, which disables
+excess-property checking), and a bare `vi.fn()` — `Mock<Procedure>` satisfies any prop, so a renamed
+prop still compiles. See `orca-write-test`.
 
 ## The live tile
 

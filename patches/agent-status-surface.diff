@@ -2,22 +2,18 @@ Carry agent status on the headless session-tab surface
 
 Toggling an agent tab from terminal to chat in the tile showed the empty "Start
 a chat with Claude" state, the model picker read a bare "Model", and the pane
-blanked again on every toggle - while the same agent's transcript renders on
-desktop and on a phone paired to a desktop server.
+blanked again on every toggle.
 
-A desktop host feeds every paired client by hanging its store's
-`AgentStatusEntry` off each session-tab surface, which the client mirrors under
-its own pane key. `orca serve` has no renderer store, so the headless builder
-omitted the field and all three symptoms followed from that one gap. The field
-is resolved from the host's agent-hook rows at `toMobileSessionTabsResult`, the
-single publish boundary every client-visible result passes through - not in any
-of the places a tab is built or re-spread, because `mergeMobileSessionSnapshotTabs`
-keeps the cached tab and would freeze or drop a value stamped at build time.
+A desktop host hangs its store's `AgentStatusEntry` off each session-tab
+surface; `orca serve` has no renderer store, so the headless builder omitted the
+field and all three symptoms followed. It is now resolved from the host's
+agent-hook rows at `toMobileSessionTabsResult`, the single publish boundary -
+not where a tab is built, because `mergeMobileSessionSnapshotTabs` keeps the
+cached tab and would freeze or drop a value stamped at build time.
 
 To test, restart the workspace, open an agent pane in the tile and toggle to
 chat: the prior transcript and the model name should appear with no hook event
-fired, and survive toggling back and forth. Covered by
-`headless-agent-status-surface.test.ts` and
+fired. Covered by `headless-agent-status-surface.test.ts` and
 `agent-status-session-surface.test.ts`.
 
 Index: orca-server/lib/orca/src/main/index.ts

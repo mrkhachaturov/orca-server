@@ -2,31 +2,17 @@ Cold-restore a dead agent pane on a headless host
 
 After a workspace restart, opening an agent pane in the tile renders its full
 transcript in chat view while typing in the composer lands in a shell:
-`bash: command not found`. Native chat is a TUI wrapper that writes bytes into
-the pane's PTY, so a pane backed by a plain shell shows real history beside a
-composer talking to bash. Desktop rebuilds the resume in its renderer; `orca
-serve` has no renderer, so the materialize path launched a fresh agent at best.
+`bash: command not found`.
 
-`resolveHeadlessAgentColdRestore` reads the host's own agent-hook rows - which
-are hydrated from disk at startup and carry `agentType` plus `providerSession` -
-by pane key, and the materialize path resumes through upstream's
-`buildAgentResumeStartupPlan` so both variants share one platform and shell
-resolution. A non-resumable agent or an unusable session id falls back to a
-fresh launch rather than failing the tab open.
-
-The cache fills a blank; it never overrules a decision. An explicitly configured
-`tab.launchAgent` outranks the hook row, and the agent and its provider session
-move together - resuming a claude session under a tab configured for codex would
-attach the wrong provider to that session id - so a disagreement drops the
-resume rather than the configuration.
-
-A resume launches from the session id alone and cannot carry a prompt in its
-argv: upstream's `buildAgentResumeStartupPlan` always returns `followupPrompt`
-null. A caller-supplied prompt is therefore delivered as a follow-up, typed into
-the pane once the agent process is up, reusing the same
-`sendStartupFollowupWhenReady` the windowed create path uses. Headless has no
-renderer to do it, so the host does. Previously the prompt was discarded in
-silence.
+Desktop rebuilds the resume in its renderer and `orca serve` has no renderer, so
+the materialize path launched a fresh agent at best - real history beside a
+composer talking to bash. `resolveHeadlessAgentColdRestore` reads the host's
+agent-hook rows, hydrated from disk at startup with `agentType` and
+`providerSession`, and resumes through upstream's `buildAgentResumeStartupPlan`.
+A configured `tab.launchAgent` outranks the hook row and a disagreement drops
+the resume, since agent and provider session must move together. That plan
+always returns `followupPrompt` null, so a caller-supplied prompt is typed in
+once the agent is up rather than discarded.
 
 To test, restart the workspace, open an agent pane in the tile and continue the
 conversation: the agent should answer with full prior context and run shell

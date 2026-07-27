@@ -39,8 +39,6 @@ const installedStatus: CliInstallStatus = {
 }
 
 describe('cli RPC methods', () => {
-  // Why: the handlers never touch the runtime service — they delegate to the
-  // ipc/cli helpers — so a bare stub is enough for the dispatcher wiring.
   const runtime = { getRuntimeId: () => 'test-runtime' } as unknown as OrcaRuntimeService
 
   beforeEach(() => {

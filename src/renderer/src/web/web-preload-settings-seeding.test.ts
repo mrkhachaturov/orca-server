@@ -1,9 +1,5 @@
-// The load path for runtime-seeded settings: which visit adopts the workspace's declaration,
-// what reaches localStorage, and what goes back over the wire.
-//
-// Why this sits beside `web-preload-api.test.ts` rather than in
-// `src/shared/runtime-seeded-settings.test.ts`: that file tests the pure key picker, and none of
-// the claims here are reachable from it. That gap is why they rested on review.
+// The load path for runtime-seeded settings. `src/shared/runtime-seeded-settings.test.ts` tests
+// the pure key picker; none of the claims here are reachable from it.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PreloadApi } from '../../../preload/api-types'
@@ -57,10 +53,9 @@ function installBrowserGlobals(storage: MemoryStorage): Window & typeof globalTh
   return windowStub
 }
 
-// Why this and not `settings.setActiveRuntimeEnvironmentPreference`: trusted-proxy pairing writes
-// the environment key directly and never touches the settings blob, so a browser that auto-paired
-// behind the proxy still arrives at its first `settings.get` with no settings of its own. Pairing
-// through this key is what keeps the first visit available to be seeded.
+// Not `settings.setActiveRuntimeEnvironmentPreference`: trusted-proxy pairing writes the
+// environment key directly and never touches the settings blob, which is what leaves the first
+// visit available to be seeded.
 function writeStoredRuntimeEnvironment(storage: Storage, environmentId = 'web-env-1'): void {
   storage.setItem(
     'orca.web.runtimeEnvironment.v1',
@@ -133,12 +128,8 @@ async function loadBrowser({
 }
 
 /**
- * Every key on which two loaded settings objects disagree.
- *
- * Why a computed diff rather than a list of key names: a hand-written denylist only catches the
- * credentials somebody thought to name. Comparing a declared load against a control load that
- * declared nothing makes the seed's whole footprint visible, so a key that starts being seeded
- * shows up here whether or not anyone anticipated it.
+ * A computed diff rather than a denylist: a hand-written list only catches the credentials
+ * somebody thought to name, while this makes the seed's whole footprint visible.
  */
 function keysChangedBy(control: GlobalSettings, seeded: GlobalSettings): string[] {
   const base = control as unknown as Record<string, unknown>
@@ -148,20 +139,17 @@ function keysChangedBy(control: GlobalSettings, seeded: GlobalSettings): string[
     .sort()
 }
 
-// A workspace that has declared how its Orca should look and which features are on. `theme` and
-// the experimental flags are the point: neither is among the five keys the web client already
-// pulled from the runtime, so before seeding, writing them into `orca-data.json` changed nothing.
+// Neither `theme` nor the experimental flags are among the keys the web client already pulled
+// from the runtime, so before seeding, declaring them in `orca-data.json` changed nothing.
 const DECLARED_APPEARANCE: Partial<GlobalSettings> = {
   theme: 'light',
   experimentalPet: true,
   experimentalMobile: true
 }
 
-// Things that share the GlobalSettings object with the declared appearance and must not travel.
-// A credential here would be readable by every browser that opens the tile; a per-device size
-// would overrule whichever screen the user happens to be on.
-// No cast: the annotation alone must reject a key that is not a GlobalSettings key, or a fixture
-// can name one that does not exist and the assertion below silently tests nothing.
+// Shares the GlobalSettings object with the declared appearance and must not travel. No cast:
+// the annotation alone must reject a key that is not a GlobalSettings key, or a fixture can name
+// one that does not exist and the assertion below silently tests nothing.
 const NOT_FOR_CLIENTS: Partial<GlobalSettings> = {
   opencodeSessionCookie: 'runtime-only-secret',
   terminalFontSize: 22
@@ -181,8 +169,8 @@ describe('web settings seeded from the runtime store', () => {
     const declared = await loadBrowser({ declares: () => DECLARED_APPEARANCE, calls })
     const seeded = await declared.api.settings.get()
 
-    // Fixture guard: if upstream ever ships these as the stock defaults this test proves nothing,
-    // and the right response is to pick a different declaration, not to delete the assertion.
+    // Fixture guard: if upstream ever ships these as stock defaults, pick a different
+    // declaration rather than deleting the assertion.
     expect(stock.theme).not.toBe('light')
     expect(stock.experimentalPet).not.toBe(true)
 
@@ -203,14 +191,13 @@ describe('web settings seeded from the runtime store', () => {
     const seeded = await declared.api.settings.get()
 
     // The declaration is the ONLY difference between the two loads, so the diff is exactly what
-    // seeding moved. Anything beyond the declared appearance keys is a leak.
+    // seeding moved.
     expect(keysChangedBy(withoutAppearance, seeded)).toEqual([
       'experimentalMobile',
       'experimentalPet',
       'theme'
     ])
 
-    // Stated directly as well, because these two are the ones that would matter.
     expect(seeded.opencodeSessionCookie).not.toBe('runtime-only-secret')
     expect(seeded.terminalFontSize).not.toBe(22)
     expect(declared.storage.getItem(SETTINGS_STORAGE_KEY)).not.toContain('runtime-only-secret')
@@ -231,9 +218,8 @@ describe('web settings seeded from the runtime store', () => {
 
     expect((await reloaded.api.settings.get()).theme).toBe('dark')
 
-    // Read-only in both directions: the workspace's declaration is a default the browser adopts,
-    // and the browser's own choice stays in this browser. Asserted over every call rather than
-    // over one method name, so a seeded key travelling upstream by some other route still fails.
+    // Asserted over every call rather than one method name, so a seeded key travelling upstream
+    // by some other route still fails.
     expect(calls.map((call) => call.method)).not.toContain('settings.update')
     expect(JSON.stringify(calls.map((call) => call.params))).not.toContain('dark')
   }, 15_000)
@@ -245,8 +231,7 @@ describe('web settings seeded from the runtime store', () => {
 
     expect((await first.api.settings.get()).theme).toBe('light')
 
-    // The workspace is re-provisioned with a different declared look. The browser already has
-    // settings, so this is policy, not a default, and must not reach it.
+    // The browser already has settings, so a changed declaration is policy, not a default.
     declaration = { ...DECLARED_APPEARANCE, theme: 'dark' }
     const reloaded = await loadBrowser({
       storage: first.storage,
@@ -266,10 +251,8 @@ describe('web settings seeded from the runtime store', () => {
       calls
     })
 
-    // The runtime was unreachable, so nothing was adopted and nothing was persisted. "First
-    // visit" means "this browser has never taken a seed", not "this browser has loaded once" —
-    // otherwise an offline first load would deny the workspace its declared defaults forever,
-    // with no way back short of clearing site data.
+    // "First visit" means "has never taken a seed", not "has loaded once" — otherwise an offline
+    // first load denies the workspace its declared defaults forever.
     const offlineSettings = await browser.api.settings.get()
     expect(offlineSettings.theme).not.toBe('light')
     expect(browser.storage.getItem(SETTINGS_STORAGE_KEY)).toBeNull()

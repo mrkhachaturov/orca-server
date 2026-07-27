@@ -3,24 +3,20 @@
 Upstream [Orca](https://github.com/stablyai/orca) (Electron, MIT) pinned as the `lib/orca`
 submodule, plus a quilt series and our own source that make it a **self-hostable web application**.
 The artifact is a Linux AppImage; `orca serve --trusted-proxy` runs behind a subdomain proxy the way
-`code-server` does.
-
-The goal is the full desktop capability set in the browser. YOLO-mode agents must not run on a
-laptop, so the server has to be reachable and the browser a first-class client rather than a
-degraded desktop.
+`code-server` does. The goal is the full desktop capability set in the browser.
 
 ## Two owners, disjoint
 
 **`patches/` modifies files that exist upstream. `src/` adds files that do not.** No path may be
 owned by both; `mise run overlay --check` fails if one is.
 
-The order is always `quilt push -a` → `mise run overlay` → build or test; `mise run up` is those two
-halves in that order. The overlay copies `src/<path>` to `lib/orca/src/<path>`, so an import reads
-the same either way. Our code runs inside Orca's process; only the storage location differs.
+The order is always `quilt push -a` → `mise run overlay` → build or test; `mise run up` is both
+halves. The overlay copies `src/<path>` to `lib/orca/src/<path>`, so an import reads the same either
+way.
 
-This splits the bump gates. **`quilt push` gates `patches/`; `mise run test:types` gates `src/`.**
-An overlay file cannot fail to apply, and still breaks when upstream renames or drops something it
-imports. Neither gate says whether a capability is still needed — that is the review.
+**`quilt push` gates `patches/`; `mise run test:types` gates `src/`** — an overlay file cannot fail
+to apply, and still breaks when upstream renames something it imports. Neither gate says whether a
+capability is still needed; that is the review.
 
 ## Commands
 
@@ -29,34 +25,53 @@ imports. Neither gate says whether a capability is still needed — that is the 
 | Assemble the tree | `mise run up` |
 | Back to pristine upstream | `mise run down` |
 | Who owns a file | `mise run owner <path>` |
+| Copy the overlay into another tree | `mise run overlay --into <root>` — e.g. a probe worktree at another tag |
 | Typecheck | `mise run test:types` |
 | Series integrity (10 checks) | `mise run test:series` |
 | Acceptance tests | `mise run test:unit` |
 | Tests beside every touched directory | `mise run test:scope` |
-| Shell lint | `mise run lint:shell` |
-| Everything above that gates a push | `mise run check` |
-| Build the AppImage | `mise run build` |
-| Boot it and fetch the web client | `mise run test:e2e` — Linux/amd64 only |
+| Lint every file type | `mise run lint` |
+| Regenerate the tables of contents | `mise run lint:docs` |
+| Everything that gates a push | `mise run check` |
+| That, then the AppImage | `mise run ci` |
+| Build the AppImage | `mise run build [--platform linux/arm64]` |
+| Boot it and fetch the web client | `mise run test:e2e` — Linux host of the artifact's arch |
+| Move the pin and restack the series | `VERSION=<tag> mise run bump` |
 
-`mise run overlay --into <root>` copies the overlay into another tree, for a probe worktree at
-a different tag.
+Every gate that reads the assembled tree declares `depends = ["up"]` except `test:series`, which
+pops and pushes the series itself. `check` sequences them: `test:series` alone, then `up`, then the
+rest in parallel. Run `up` by hand only before a hand-run `vitest`.
+
+`build` targets this machine's architecture; both `linux/amd64` and `linux/arm64` are release
+targets, each built on a native runner in CI. The artifact is
+`dist/orca-server-<version>-<arch>.AppImage`, where `<arch>` is `uname -m` (`x86_64`, `aarch64`) —
+not the `amd64`/`arm64` the platform flag takes.
+
+`hk.pkl` owns the git lifecycle and installs itself from mise's `postinstall`. Pre-commit: hygiene,
+`main` refused, diff-scoped flint, `mise run overlay --check`; it runs `fix = true`, so shfmt, rumdl,
+ryl, taplo and `flint-setup` rewrite what you are committing. Commit-msg: conventional commit.
+Pre-push: `test:series`, `lint:docs`. `hk run check` and `hk run fix` fire only by name. Bypass one
+command with `HK=0`. Do not re-run by hand what a hook already runs.
+
+Silence a lint finding inline, at the line it applies to (`# shellcheck disable=SCxxxx`,
+`# hadolint ignore=DLxxxx`, `# zizmor: ignore[rule]`), with the reason. `flint.toml` excludes only
+upstream's tree, byte-exact artifacts and verbatim third-party text.
+
+## Write facts, not prose
+
+**A comment states what and why in one or two lines. Never more than the code it explains.** This
+binds every doc and every comment in the repo. Do not narrate the reasoning, restate the code in
+English, or justify decisions nobody asked about.
+
+This file and `.claude/skills/` load in full every session, so every line is a recurring token cost.
+If a comment needs a paragraph, the code needs the rewrite instead.
 
 ## Flow
 
-A capability change:
-
+```text
+capability: decide the owner and the patch → write it → test it red before green → gate it
+bump:       mise run bump → re-justify each patch: keep | shrink | merge | drop → write → gate
 ```
-decide the owner and the patch → write it → test it red before green → gate it
-```
-
-An upstream bump:
-
-```
-mise run bump → re-justify each patch: keep | shrink | merge | drop → write → gate
-```
-
-The restack decides nothing. A clean restack means the patches still apply, which is not the
-same as still being needed.
 
 Under Claude Code each step is a skill in `.claude/skills/`: `orca-patch-audit`,
 `orca-patch-author`, `orca-write-test`, `orca-patch-verify`. Run the skill rather than
@@ -64,51 +79,45 @@ reconstructing its steps.
 
 ## The quality bar
 
-**A patch an upstream maintainer would accept.** A workaround has to be re-justified on every bump
-and can never be contributed back. In order of preference:
+**A patch an upstream maintainer would accept.** In order of preference:
 
 1. **Wire up Orca's own building block.** Usually the runtime already holds the data and merely
    fails to project it, or an RPC exists and the web preload stubs past it.
 2. **Add a new building block, written properly.** New modules, new dependencies, even a real
    backing service are fine when nothing exists to reuse. It goes in `src/`, at the path it will
    occupy in Orca's tree.
-3. Never a workaround. That is the only banned category.
-
-The code should read as though upstream wrote it, because the goal is that upstream takes it.
+3. Never a workaround — the only banned category. It can never be contributed back and has to be
+   re-justified on every bump.
 
 ## The one fact behind every tile bug
 
 Upstream's model is two machines — a server owning repos, worktrees, terminals and agent processes,
-and a client running the UI. orca-server collapses both onto one host. So `LOCAL_EXECUTION_HOST_ID`
+and a client running the UI. orca-server collapses both onto one host, so `LOCAL_EXECUTION_HOST_ID`
 is a fiction, headless drops every window-bound subsystem, and **every capability needs a wire
-representation**: there is no "just do it locally" fallback, because local *is* the server.
-
-Upstream stubs `web-preload-api.ts` exactly where no wire exists yet.
+representation**: local *is* the server, so there is no local fallback. Upstream stubs
+`web-preload-api.ts` exactly where no wire exists yet.
 
 ## Invariants
 
 - **Order in the series is data**, held in `patches/series`. Patches are named for the capability
-  they add. There is no such operation as renumbering, and no patch identifier belongs in a code
-  comment — name the rule instead.
-- **A new file is never a quilt operation.** It goes in `src/`. Nothing is `quilt add`ed, nothing
-  refreshed, and it cannot conflict on a bump.
+  they add. Never renumber, and never put a patch identifier in a code comment — name the rule.
+- **A new file is never a quilt operation.** It goes in `src/`: nothing `quilt add`ed, nothing
+  refreshed, nothing that can conflict on a bump.
 - **`quilt add` before touching a file that exists upstream.** An edit to a file not in the current
-  patch is invisible to `quilt refresh` — it stays in the working tree, the tests pass, and the
-  series does not carry it. `series.bats` fails a working-tree file owned by neither owner, which is
-  the only way that failure is visible.
+  patch is invisible to `quilt refresh` — it stays in the working tree and the series does not carry
+  it. `series.bats` failing an unowned working-tree file is the only place that surfaces.
 - **A patch applying cleanly is not acceptance.** It can apply and still be redundant or already
   shipped upstream. Every bump re-justifies each patch: keep, shrink, merge or drop.
 - **A patch not covered by a test that fails without it does not ship.** "Has a test file" is not
-  coverage — every patch had one while four were untested in substance, and one shipped a green test
-  asserting its own defect. Write the test from the header's *To test* symptom, never from the
-  implementation; watch it fail before you make it pass.
-- **The header names the tests; that naming is the only link left.** A new test file lives in the
+  coverage. Write the test from the header's *To test* symptom, never from the implementation; watch
+  it fail before you make it pass.
+- **The header names the tests; that naming is the only link left.** New test files live in the
   overlay, so a patch cannot prove coverage by containing one. `series.bats` requires every patch to
   name its tests in backticks and requires those files to exist.
-- **A green `vitest` run is not a working build.** vitest transpiles and never typechecks, so a test
-  that does not compile passes locally and fails minutes into CI. Casting a fixture (`{...} as T`)
-  or leaving a mock as a bare `vi.fn()` hides exactly the errors typecheck would catch.
-- **Every patch carries a rationale header** saying the symptom, the cause and how to check.
+- **A green `vitest` run is not a working build.** vitest transpiles and never typechecks. Casting a
+  fixture (`{...} as T`) or leaving a mock as a bare `vi.fn()` hides exactly the errors typecheck
+  would catch.
+- **Every patch carries a rationale header**: the symptom, the cause and how to check.
 - **A path existing in source is not evidence it is taken.** Graph traces and grep hits are leads;
   behavioural claims need a test or a live check.
 - **Check the read path before designing the write.** A host-side fix substitutes for a client-side
@@ -116,15 +125,15 @@ Upstream stubs `web-preload-api.ts` exactly where no wire exists yet.
 - **Fill a derived field at the publish boundary, never in a snapshot producer.** The snapshot merge
   keeps the cached tab, so a value stamped at build time is frozen or dropped.
 - **Value imports from a hub module go in a leaf under `src/shared/`,** and nothing crossing an
-  import cycle may be evaluated at module scope. One violation took out 411 upstream tests while the
-  patch's own tests stayed green.
+  import cycle may be evaluated at module scope. One violation took out 411 upstream tests.
 - **Nothing deployment-specific enters Orca's source.** Domains, workspace slugs and URL shapes live
-  in the template string an operator writes, never in a constant a patch adds. A patch that only
-  works for one install is not contributable and will not survive a bump.
-- **Upstream's identity stays untouched** — `productName` Orca, `appId` `com.stablyai.orca`,
-  userData `~/.config/orca`. Only the release asset carries our name. The MIT license ships inside
-  the AppImage.
-- Anything host-mutating or credential-minting is never on `MOBILE_RPC_METHOD_ALLOWLIST`; a
+  in the template string an operator writes, never in a constant a patch adds.
+- **The rename is a build-time overlay, never a patch.** `build/electron-builder.overlay.cjs` sets
+  `productName` `orca-server` and `appId` `io.github.mrkhachaturov.orca-server` via
+  electron-builder's `extends`, so there is nothing to restack. **userData stays `~/.config/orca`**:
+  Electron derives it from `package.json` `name` before `setName()` runs. The MIT license ships
+  inside the AppImage.
+- **Nothing host-mutating or credential-minting goes on `MOBILE_RPC_METHOD_ALLOWLIST`** — a
   phone-reachable method there would be privilege escalation. Test-enforced.
 - **Coder is authentication, Orca is authorisation plus E2EE.** Trusted mode binds the listener to
   loopback and treats that bind as proof the proxy already authenticated. Safe only on a
@@ -134,9 +143,9 @@ Upstream stubs `web-preload-api.ts` exactly where no wire exists yet.
 
 `squashfs-root/AppRun` is the Electron **desktop** entrypoint and silently ignores a `serve`
 positional — it boots the GUI with the stock server on another port and reports success. The
-user-facing CLI is the shim at `squashfs-root/resources/bin/orca-ide`. The `test:e2e` task encodes
-the whole launch line; read `.mise/tasks/test/e2e.sh` rather than reconstructing one.
-`docs/install.md` is the public version.
+user-facing CLI is the shim at `squashfs-root/resources/bin/orca-ide`. Read
+`.mise/tasks/test/e2e.sh` for the launch line rather than reconstructing one; `docs/install.md` is
+the public version.
 
 ## More
 

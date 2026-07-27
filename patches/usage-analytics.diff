@@ -2,26 +2,22 @@ Bridge usage analytics to the web client
 
 Settings > Stats & Usage sat on "Not scanned yet" in the tile and the Enable
 Claude/Codex/OpenCode buttons did nothing at all - no error, no effect - while
-the same build on a Mac shows the full ledger. `window.api.<provider>Usage.*` is
-desktop-only IPC that is not in the web preload, so every call fell through
-`createFallbackProxy` and resolved to `undefined`.
+the same build on a Mac shows the full ledger.
 
-This adds a `usage.*` RPC family (eight methods, provider as a parameter) over
-the stores that already run under `orca serve`, plus three real preload
-namespaces instead of the fallback. Nothing about scanning changed: the logs,
-the scanners and the stores were always on the host, only the pipe was missing.
-`setEnabled` mutates the host, so all eight stay off
-`MOBILE_RPC_METHOD_ALLOWLIST`.
+`window.api.<provider>Usage.*` is desktop-only IPC that is not in the web
+preload, so every call fell through `createFallbackProxy` and resolved to
+`undefined`. This adds a `usage.*` RPC family (eight methods, provider as a
+parameter) over the stores that already run under `orca serve`, plus three real
+preload namespaces. Nothing about scanning changed: the logs, the scanners and
+the stores were always on the host, only the pipe was missing. `setEnabled`
+mutates the host, so all eight stay off `MOBILE_RPC_METHOD_ALLOWLIST`. Only four
+have a symptom in that pane today - the renderer slice batches through
+`getSnapshot` - so the rest are specified against the desktop
+`<provider>Usage:` IPC handlers they mirror.
 
 To test, open Settings > Stats & Usage in the tile, enable a provider and scan;
 the ledger should match what the same host shows on desktop. Covered by
 `usage.test.ts`, a case per method, and `mobile-rpc-allowlist.test.ts`.
-
-Only four of the eight methods have a symptom in that pane today - the renderer
-slice batches through `getSnapshot`. The other four are specified against the
-desktop `<provider>Usage:` IPC handlers they mirror, and their cases assert that
-parity - argument order and a verbatim payload - rather than a pane behaviour
-they do not yet drive.
 
 Index: orca-server/lib/orca/src/main/index.ts
 ===================================================================

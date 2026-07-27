@@ -10,9 +10,8 @@ main() {
   doctoc --title '# Install' docs/install.md > /dev/null
   doctoc --title '# Contributor Covenant Code of Conduct' docs/CODE_OF_CONDUCT.md > /dev/null
 
-  # Scoped to docs/ so this is runnable locally with CI=1, which is how you catch
-  # the failure before pushing. Unscoped it also reports lib/orca, which is dirty
-  # on any machine that has the patch series applied.
+  # Scoped to docs/: unscoped this also reports lib/orca, dirty on any machine
+  # with the series applied.
   if [[ ${CI-} && $(git ls-files --other --modified --exclude-standard -- docs) ]]; then
     echo "Files need generation or are formatted incorrectly:"
     git -c color.ui=always status -- docs | grep --color=no '\[31m'

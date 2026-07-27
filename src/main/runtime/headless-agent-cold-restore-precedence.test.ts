@@ -1,10 +1,3 @@
-/**
- * The headless cold-restore decision at the tab-materialize call site, and the prompt it carries.
- *
- * Two things the resolver test above this one cannot see: which agent actually wins when a
- * configured tab disagrees with the host's hook cache, and what happens to a caller's prompt
- * when the launch resumes an existing provider session instead of starting a fresh one.
- */
 import { describe, expect, it } from 'vitest'
 import type { AgentStatusIpcPayload } from '../../shared/agent-status-types'
 import { OrcaRuntimeService } from './orca-runtime'
@@ -41,9 +34,8 @@ const SETTINGS = {
   terminalWindowsShell: undefined
 }
 
-/** Materialize path harness: real `activateMobileSessionTab`, stubs for everything the
- *  precedence decision does not depend on. `resolveMobileSessionTerminalCommand` is captured,
- *  which is exactly where `startupAgent` lands. */
+/** Real `activateMobileSessionTab`; `resolveMobileSessionTerminalCommand` is captured because
+ *  that is where `startupAgent` lands. */
 function activateHarness(rows: AgentStatusIpcPayload[], launchAgent: string | undefined) {
   const runtime = new OrcaRuntimeService({ getSettings: () => SETTINGS } as never, undefined, {
     getAgentStatusSnapshot: () => rows
@@ -90,8 +82,6 @@ function activateHarness(rows: AgentStatusIpcPayload[], launchAgent: string | un
 
 describe('cold-restore agent precedence', () => {
   it('honours the explicitly configured tab.launchAgent over the hook-cache agent', async () => {
-    // The pane is configured to launch `codex`; the host's hook rows remember a resumable
-    // `claude` for the same pane key. Correct: the explicit configuration wins.
     const { runtime, seen } = activateHarness([hookRow({ agentType: 'claude' })], 'codex')
     await runtime.activateMobileSessionTab(WORKTREE, TAB, LEAF)
 
@@ -100,8 +90,6 @@ describe('cold-restore agent precedence', () => {
   })
 
   it('still uses the hook-cache agent when the tab configures none', async () => {
-    // Control: with no tab.launchAgent the cache-derived agent is the only signal, and the
-    // cold restore should supply it.
     const { runtime, seen } = activateHarness([hookRow({ agentType: 'claude' })], undefined)
     await runtime.activateMobileSessionTab(WORKTREE, TAB, LEAF)
 
@@ -109,7 +97,6 @@ describe('cold-restore agent precedence', () => {
   })
 })
 
-/** Direct seam: the private command resolver, with only a settings store behind it. */
 function commandResolver() {
   const runtime = new OrcaRuntimeService(
     { getSettings: () => SETTINGS } as never,
@@ -139,15 +126,14 @@ describe('agentPrompt on a resuming launch', () => {
       resumeProviderSession: { key: 'session_id', id: SESSION_ID }
     })
 
-    // Why: a resume launches from the session id alone, so the prompt cannot ride the argv —
-    // it is typed into the pane once the agent is up. Resuming must not swallow it either way.
+    // A resume launches from the session id alone, so the prompt cannot ride the argv — it is
+    // typed into the pane once the agent is up.
     expect(resolved.resumeProviderSession).toMatchObject({ id: SESSION_ID })
     expect(resolved.command).not.toContain(PROMPT)
     expect(resolved.followup).toMatchObject({ prompt: PROMPT })
   })
 
   it('carries the caller prompt into a fresh (non-resuming) launch command', async () => {
-    // Control: the same call without a resume plan.
     const resolved = await commandResolver()({ agent: 'claude', agentPrompt: PROMPT })
 
     expect(resolved.command).toContain(PROMPT)
