@@ -88,9 +88,15 @@ jobs:
 
       - run: ./ci/build/build-appimage.sh '${{ inputs.patch || '0' }}'
 
+      # Everything between "## Unreleased" and the next "## ", or the end of the
+      # file when there is no next one. code-server does this with
+      # `sed | head -n -2 | tail -n +3`, which assumes a following section and
+      # eats two real lines when Unreleased is last, as it is on a first release.
       - run: |
           mkdir -p .cache
-          sed "/^## Unreleased/,/^## / ! d" CHANGELOG.md | head -n -2 | tail -n +3 > .cache/release-notes
+          awk '/^## Unreleased/ {f=1; next} /^## / {f=0} f' CHANGELOG.md \
+            | sed -e '/./,$!d' -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' > .cache/release-notes
+          cat .cache/release-notes
 
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
