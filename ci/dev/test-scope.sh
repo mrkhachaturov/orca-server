@@ -17,12 +17,20 @@ main() {
     exit 1
   fi
 
+  # The overlay has to be in the tree before its neighbours can be found.
+  ./ci/build/overlay.sh > /dev/null
+
+  # Both owners count. A patch modifies an upstream file; the overlay adds one of
+  # ours. Either way the tests beside it are in scope, and a directory that holds
+  # only overlay files would otherwise get no coverage at all.
   local dirs
-  dirs="$(quilt files -a | sed 's|^lib/orca/||' | grep -E '^src/.*\.tsx?$' \
-    | xargs -n1 dirname | sort -u)"
+  dirs="$( {
+    quilt files -a | sed 's|^lib/orca/||'
+    [ -d src ] && find src -type f
+  } | grep -E '^src/.*\.tsx?$' | xargs -n1 dirname | sort -u)"
 
   if [[ -z $dirs ]]; then
-    echo >&2 "the series touches no src/ files"
+    echo >&2 "neither the series nor the overlay touches any src/ file"
     exit 1
   fi
 

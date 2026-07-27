@@ -6,11 +6,13 @@
 # (glibc 2.36), a floor at or below the Debian hosts this runs on; building on
 # whatever the CI runner happens to be would tie the AppImage's glibc to it.
 #
-# The build consumes `lib/orca` WITH THE SERIES ALREADY APPLIED — run
-# `quilt push -a` (or ./ci/build/build-appimage.sh, which does it for you)
-# first. It deliberately does NOT clone upstream itself: the submodule commit is
-# the single pin for which Orca this is, and a second clone inside the build
-# could disagree with it.
+# The build consumes `lib/orca` WITH THE SERIES APPLIED AND THE OVERLAY COPIED
+# IN — run `quilt push -a && ./ci/build/overlay.sh` (or
+# ./ci/build/build-appimage.sh, which does both) first. `COPY lib/orca/` takes
+# the working tree as it finds it, so a missing overlay builds an image without
+# our own source and reports success. It deliberately does NOT clone upstream
+# itself: the submodule commit is the single pin for which Orca this is, and a
+# second clone inside the build could disagree with it.
 #
 # electron-builder 26's default AppImage toolset is a STATIC runtime (bundled
 # mksquashfs + a prepended runtime binary) — so the build needs no FUSE and no

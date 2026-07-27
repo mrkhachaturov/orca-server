@@ -34,6 +34,11 @@ main() {
       ;;
   esac
 
+  # Our own source is not in the series — patches modify upstream files, the
+  # overlay adds ours. The Dockerfile copies lib/orca wholesale, so this has to
+  # run before it or the image builds without a third of our code.
+  ./ci/build/overlay.sh
+
   local applied
   applied="$(quilt applied 2> /dev/null | wc -l | tr -d ' ')"
   local expected
