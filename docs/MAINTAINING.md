@@ -14,7 +14,8 @@
 
 Orca ships often, so most of the work here is keeping the patch series applied to the current release and deciding what
 no longer needs to exist. There is very little feature work. If a capability can be built without touching Orca's
-source, it should not be a patch at all.
+source, it should not be a patch at all, and code of ours that upstream has no version of belongs in the `src/` overlay
+rather than in the series.
 
 ## Releasing
 
@@ -50,20 +51,29 @@ Add an `-rc.<number>` suffix to the version and mark the published release as a 
 The scheduled workflow opens a pull request every time Orca tags a release. It restacks the series and stops at the
 first patch that will not apply. Resolving conflicts is described in [Contributing](./CONTRIBUTING.md).
 
+What restacks is `patches/`, and only that. The overlay's files do not exist upstream, so there is nothing for a bump to
+reject and quilt has no opinion about them. When a bump does break them it is because an upstream API they call has
+moved, and the build's typecheck is what says so — which is why a bump that produced no conflicts still has to build
+before it means anything.
+
 The part that is not mechanical is the review. A patch applying cleanly says nothing about whether it should still be
 there. For each one, ask whether upstream has since shipped the behaviour, whether the patch has grown to cover
-something a smaller change would fix, and whether two patches have converged on the same symbols. Write the answer in
-the changelog. A bump that only makes the build pass again has skipped the point of the review.
+something a smaller change would fix, whether part of it is new code that would be cheaper to carry in the overlay, and
+whether two patches have converged on the same symbols. Write the answer in the changelog. A bump that only makes the
+build pass again has skipped the point of the review.
 
 Watch for patches labelled `upstream-fixed` in the issue tracker. Those are the ones a bump can delete outright.
 
 ## Testing
 
 `./ci/dev/test-scripts.sh` guards the series and runs in CI on every change to `patches/` or `lib/`. It is the one suite
-that has to stay green, because a stale patch is invisible in a diff.
+that has to stay green, because a stale patch is invisible in a diff. It also enforces the boundary between the two
+owners: every file in the submodule tree belongs to a patch or to the overlay, and none belongs to both.
 
-`./ci/dev/test-unit.sh` runs the acceptance tests the patches carry, against the patched tree. Needs `pnpm install`
-inside `lib/orca` first, which takes a while, so it is not wired into the pull request build yet.
+`./ci/dev/test-unit.sh` runs the acceptance tests the series and the overlay carry. `./ci/dev/test-scope.sh` runs
+upstream's own tests beside every file either of them touches, which is what catches a patch breaking tests it never
+names. Both apply to the patched tree, both need `pnpm install` inside `lib/orca` first, and both run in the pull
+request build.
 
 `./ci/dev/test-e2e.sh` boots the built AppImage and fetches the web client. Linux only, and it needs a build to exist.
 

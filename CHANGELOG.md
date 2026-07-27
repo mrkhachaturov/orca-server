@@ -31,6 +31,21 @@ Orca v9.99.999
 
 ## Unreleased
 
+### Changed
+
+- Our own source now lives in `src/` instead of inside the patches. A patch
+  modifies a file that exists upstream; the overlay in `src/` adds a file that
+  does not, and `ci/build/overlay.sh` copies it into Orca's tree after the series
+  applies. 29 files and 3575 lines moved out, taking `patches/` from 5856 added
+  lines to 2640. The build and the tests are unchanged — 26 test files and 1161
+  tests pass exactly as before. On a bump those files can no longer fail to
+  apply, since upstream has no version of them to conflict with; they can still
+  fail to compile when upstream renames or drops something they import, and
+  `pnpm run typecheck:tsc` is what reports it.
+- `series.bats` now requires a patch to name its tests in its header, rather than
+  to contain a test file. Containing one was never evidence: all thirteen patches
+  passed that check while four were untested in substance.
+
 ## [4.156.0] - 2026-07-27
 
 Orca v1.4.156

@@ -10,6 +10,12 @@ node_modules
 /patches/*.diff~
 
 # Local-only agent tooling: machine-specific paths, never the repo's contract.
+# The contract itself is AGENTS.md + CLAUDE.md, and .claude/skills/ ships with it;
+# only what depends on a local index or a local machine stays out.
 /mise.local.toml
 /.mcp.json
-/.claude
+/CLAUDE.local.md
+/.claude/settings.local.json
+/.claude/findings.md
+/.claude/skills/orca-graph/
+/.claude/skills/orca-wiki/

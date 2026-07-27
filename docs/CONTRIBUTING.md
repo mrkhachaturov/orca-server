@@ -5,6 +5,7 @@
 
 - [Requirements](#requirements)
 - [Development workflow](#development-workflow)
+  - [Where a change goes](#where-a-change-goes)
   - [Working on a patch](#working-on-a-patch)
   - [Version updates to Orca](#version-updates-to-orca)
   - [Build](#build)
@@ -37,15 +38,38 @@ cd orca-server
 git submodule update --init   # fetches Orca at the pinned tag into lib/orca
 mise install
 quilt push -a                 # applies the series to lib/orca
+./ci/build/overlay.sh         # copies our own files in on top
 ```
 
 `lib/orca` is now a working Orca tree with our changes on it. It will show as dirty in `git status` and that is expected:
-the changes live in `patches/`, never in a commit inside the submodule.
+the changes live in `patches/` and `src/`, never in a commit inside the submodule.
 
-To get back to pristine upstream, run `quilt pop -a`. That is also how you compare behaviour against stock Orca, and it
-is faster and more honest than keeping a second checkout around.
+To get back to pristine upstream, run `quilt pop -a && ./ci/build/overlay.sh --clean`. Both halves are needed: the
+overlay's copies are untracked files in the submodule, so popping the series leaves them behind. `--clean` removes only
+the files the overlay owns, and refuses to delete one that upstream has started tracking, so it will not take anything
+of yours or theirs with it. That is also how you compare behaviour against stock Orca, and it is faster and more honest
+than keeping a second checkout around.
+
+### Where a change goes
+
+Two owners, and upstream decides which one you get.
+
+A file that already exists in Orca is modified by a patch, with quilt. A file that does not exist upstream is ours
+outright: a plain `.ts` or `.tsx` file under `src/`, committed like any other source, never `quilt add`ed and never
+inside a patch.
+
+`ci/build/overlay.sh` copies `src/<path>` to `lib/orca/src/<path>`, so an import resolves the same whichever owner a
+module has. It runs after `quilt push -a` and copies last, which is why no path may be owned by both:
+`./ci/build/overlay.sh --check` asserts that and copies nothing. The series tests check it too, along with the reverse
+case — a file in the submodule tree that belongs to neither owner.
+
+This is the split Debian, OpenWrt and Yocto all use: patches for upstream files, an overlay for new ones. code-server
+keeps its own product in `src/` for the same reason, but it can test that `src/` standalone because it wraps VS Code.
+Ours has to run inside Orca's process, so the overlay is compiled and tested in the patched tree rather than on its own.
 
 ### Working on a patch
+
+This is for files that exist upstream. Adding a file of ours is not a quilt operation at all — write it under `src/`.
 
 Never edit a file in `patches/` by hand. Let quilt write it.
 
@@ -72,7 +96,8 @@ quilt push -a                  # confirm the rest of the series still applies
 Three rules the tests enforce:
 
 Every patch opens with a rationale header, the free text above the first `Index:` line. Say what the patch does, why the
-behaviour it fixes is wrong without it, and how to check. Name the test file it carries.
+behaviour it fixes is wrong without it, and how to check. Name, in backticks, the test file that covers it — usually one
+the overlay owns, since a patch can no longer prove coverage by containing a new test.
 
 Every patch leaves the build working on its own. Patches may depend on each other, but no intermediate state may be
 broken, or the series cannot be bisected or reordered.
@@ -96,6 +121,9 @@ quilt refresh
 ./ci/build/update-orca.sh   # re-run to continue through the rest
 ```
 
+Only `patches/` restacks. Files in `src/` have no upstream version to conflict with, so a bump can never reject them;
+what breaks them is an upstream API they call moving, and the build's typecheck is what reports that, not quilt.
+
 A patch applying is not a reason to keep it. Every bump is the moment to decide, for each patch, whether to keep it,
 shrink it, merge it into another, or drop it because upstream has since shipped the behaviour. Record the decision in
 `CHANGELOG.md`. The scheduled workflow opens a pull request for this and deliberately never merges it.
@@ -106,33 +134,48 @@ shrink it, merge it into another, or drop it because upstream has since shipped 
 ./ci/build/build-appimage.sh   # writes dist/orca-server-<tag>-x86_64.AppImage
 ```
 
-The build reads the version off the submodule, checks that the whole series is applied, and then runs Orca's own
-`build:desktop`, which typechecks. That typecheck is what actually proves the series still fits upstream.
+The build applies the series, runs the overlay, reads the version off the submodule, and then runs Orca's own
+`build:desktop`, which typechecks. That typecheck is what actually proves the series and the overlay still fit upstream.
 
 ## Test
 
 ```bash
 ./ci/dev/lint-scripts.sh   # shellcheck over every tracked shell script
 ./ci/dev/test-scripts.sh   # series integrity
-./ci/dev/test-unit.sh      # the acceptance tests the patches carry
+./ci/dev/test-unit.sh      # the acceptance tests the series and the overlay carry
+./ci/dev/test-scope.sh     # upstream's tests beside every file either of them touches
 ./ci/dev/test-e2e.sh       # boot the built AppImage and fetch the web client
 ```
+
+`test-unit.sh` and `test-scope.sh` need the whole series applied and `pnpm install` run inside `lib/orca`. Both run the
+overlay themselves, so the copy is never something you have to remember.
 
 ### Series tests
 
 `test/scripts/series.bats` checks the things a reviewer cannot see by reading a diff: that every entry in `series`
-resolves, that no patch applies with fuzz, that every patch carries a rationale header, and that a `quilt refresh` of
-each patch changes nothing. That last one is the important one. It means a stale or hand-edited patch fails CI instead
-of sitting in the tree until someone bumps upstream and cannot work out why the tree no longer matches.
+resolves, that no patch applies with fuzz, that every patch carries a rationale header naming a test file that exists,
+and that a `quilt refresh` of each patch changes nothing. That last one is the important one. It means a stale or
+hand-edited patch fails CI instead of sitting in the tree until someone bumps upstream and cannot work out why the tree
+no longer matches.
+
+It also holds the two-owner rule from both ends: every file in the submodule tree has to belong to a patch or to the
+overlay, and no file may belong to both.
 
 ### Acceptance tests
 
-Ours live inside the patches, in Orca's tree, and run under Orca's own vitest. That is forced by what they test: RPC
-methods, surface builders, ownership resolvers, none of which are reachable from outside the process. `test-unit.sh`
-reads the file list out of the series, so adding a patch adds its tests without touching the runner.
+Ours run inside Orca's tree under Orca's own vitest. That is forced by what they test: RPC methods, surface builders,
+ownership resolvers, none of which are reachable from outside the process.
 
-The trade is that these tests restack on every bump. In exchange, a patch already carries the test an upstream pull
-request would need.
+They come from the same two owners the code does. A test for a file we added is a new file, so it lives in the overlay
+next to what it tests; a test that extends one of upstream's test files is a modification, so it lives in the patch that
+makes it. `test-unit.sh` derives its list from both, so adding either kind picks it up without touching the runner.
+
+`test-scope.sh` runs a wider net: upstream's own tests sitting beside every file the series or the overlay touches. A
+patch breaks tests it never names — one import at module scope took out 411 of them while the series' own tests stayed
+green.
+
+Overlay tests no longer restack on a bump. Patch-side ones still do, and in exchange a patch carries the test an
+upstream pull request would need.
 
 Upstream's full suite is not green under parallel load, even on a pristine tag. Before blaming a patch for a failure,
 run `pnpm test` inside `lib/orca` with the series popped and compare.
@@ -145,9 +188,10 @@ take effect. Linux only.
 
 ## Structure
 
-This repository has no source of its own. Orca is a git submodule at `lib/orca`, pinned to a release tag, and every
-change is a file in [patches](../patches) applied with quilt. The submodule commit is the only place the version is
-recorded; no build file repeats it.
+Orca is a git submodule at `lib/orca`, pinned to a release tag. Our changes to files that exist there are patches in
+[patches](../patches), applied with quilt; the files that do not exist there are ours outright and live in
+[src](../src), copied into the tree at build time. The submodule commit is the only place the version is recorded; no
+build file repeats it.
 
 The AppImage is built in a Docker sandbox so its glibc floor comes from Debian bookworm rather than from whichever
 runner happened to build it.
@@ -169,9 +213,14 @@ written to be acceptable upstream rather than merely to work here.
 
 ### Keep changes out of the series when you can
 
-A patch has to be restacked on every upstream bump. Anything that does not need Orca's source should live in this
-repository instead, where it costs nothing to carry.
+A patch has to be restacked on every upstream bump. Nothing else in this repository does, so the question for any change
+is how little of it has to be a patch.
 
-The product rename is the worked example. `ci/build/electron-builder.overlay.cjs` sets `appId` and `productName` through
+New code of ours is the common case, and the overlay is the answer to it. A file with no upstream counterpart cannot
+conflict, so it costs nothing to carry; what stays in a patch is the call into it, the line in an upstream file that
+imports or registers what we added.
+
+Anything that does not need Orca's source at all should not reach `lib/orca` in the first place. The product rename is
+the worked example. `ci/build/electron-builder.overlay.cjs` sets `appId` and `productName` through
 electron-builder's own `extends`, which deep-merges over upstream's config at build time. Doing the same thing as a
 patch would have added a fourteenth file to restack forever.
