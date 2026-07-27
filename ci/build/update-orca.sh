@@ -117,7 +117,7 @@ function main() {
       "Refresh Orca patches" "refresh_patches"
     )
   else
-    target_orca_version="$(orca_tag)"
+    target_orca_version="v$(orca_version)"
     echo "Detected Orca version $target_orca_version"
   fi
 

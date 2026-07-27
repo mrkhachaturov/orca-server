@@ -19,11 +19,8 @@ main() {
     exit 1
   fi
 
-  local tag
-  tag="$(orca_tag)" || {
-    echo >&2 "lib/orca is not parked on a tag; an untagged build is not releasable"
-    exit 1
-  }
+  local orca
+  orca="$(orca_version)"
 
   # The build consumes the working tree, so the series must be on it. quilt
   # exits 2 when there is nothing left to push, which is success here.
@@ -52,7 +49,7 @@ main() {
   local version
   version="$(orca_server_version "${1:-0}")"
 
-  echo "Building orca-server $version from Orca $tag with $applied patches applied"
+  echo "Building orca-server $version from Orca $orca with $applied patches applied"
 
   VERSION="$version" \
     PNPM_VERSION="$(orca_pnpm_version)" \

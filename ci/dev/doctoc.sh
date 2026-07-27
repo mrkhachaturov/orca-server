@@ -9,9 +9,12 @@ main() {
   doctoc --title '# Install' docs/install.md > /dev/null
   doctoc --title '# Contributor Covenant Code of Conduct' docs/CODE_OF_CONDUCT.md > /dev/null
 
-  if [[ ${CI-} && $(git ls-files --other --modified --exclude-standard) ]]; then
+  # Scoped to docs/ so this is runnable locally with CI=1, which is how you catch
+  # the failure before pushing. Unscoped it also reports lib/orca, which is dirty
+  # on any machine that has the patch series applied.
+  if [[ ${CI-} && $(git ls-files --other --modified --exclude-standard -- docs) ]]; then
     echo "Files need generation or are formatted incorrectly:"
-    git -c color.ui=always status | grep --color=no '\[31m'
+    git -c color.ui=always status -- docs | grep --color=no '\[31m'
     echo "Please run the following locally:"
     echo "  ./ci/dev/doctoc.sh"
     exit 1

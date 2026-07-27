@@ -15,26 +15,23 @@ orca_version() {
   jq -r .version lib/orca/package.json
 }
 
-# The tag the submodule is parked on. Fails loudly when it is not on a tag at
-# all, which is the state that silently produces an unreleasable build.
-orca_tag() {
-  git -C lib/orca describe --tags --exact-match
-}
-
-# Our version, derived from the Orca tag the submodule is on. Orca's major is
-# always 1 and carries no information, so it goes and the two components that
-# move stay: v1.4.156 releases as 4.156.0. The last slot is ours, so 4.156.1 is
-# the same Orca with a changed series; pass it as $1. Reading it back is "take
-# the first two fields and prepend 1.".
+# Our version, derived from the Orca version above. Orca's major is always 1 and
+# carries no information, so it goes and the two components that move stay:
+# Orca 1.4.156 releases as 4.156.0. The last slot is ours, so 4.156.1 is the same
+# Orca with a changed series; pass it as $1. Reading it back is "take the first
+# two fields and prepend 1.".
+#
+# Read from package.json rather than `git describe`, the way code-server reads
+# Code's version. actions/checkout fetches submodules shallow and without tags,
+# so describe finds nothing in CI and the build fails at the last step.
 #
 # This lives here, not in the release workflow, so a local build and a CI build
 # name the artifact identically.
 orca_server_version() {
-  local tag patch
-  tag="$(orca_tag)"
-  tag="${tag#v}"
+  local version patch
+  version="$(orca_version)"
   patch="${1:-0}"
-  echo "${tag#*.}.${patch}"
+  echo "${version#*.}.${patch}"
 }
 
 # Orca declares its own toolchain and we match it — a newer pnpm breaks the

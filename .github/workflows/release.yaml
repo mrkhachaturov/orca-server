@@ -55,9 +55,12 @@ jobs:
 
       # The submodule commit is the only real pin. Releasing a tag that
       # disagrees with it would ship a build nobody can reproduce from the repo.
-      - name: Check the submodule is on the tag being released
+      # Read from package.json, not `git describe`: actions/checkout fetches
+      # submodules shallow and without tags.
+      - name: Check the submodule is on the version being released
         run: |
-          pinned="$(git -C lib/orca describe --tags --exact-match)"
+          source ./ci/lib.sh
+          pinned="v$(orca_version)"
           if [[ "$pinned" != "$ORCA_TAG" ]] ; then
             echo "lib/orca is on $pinned but the release says $ORCA_TAG"
             exit 1
