@@ -227,15 +227,18 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      }
    ): Promise<{
      command?: string
-@@ -22582,6 +22611,7 @@ export class OrcaRuntimeService {
+@@ -22582,6 +22611,10 @@ export class OrcaRuntimeService {
      startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
      launchConfig?: SleepingAgentLaunchConfig
      launchAgent?: TuiAgent
 +    resumeProviderSession?: AgentProviderSessionMetadata
++    // Why: a resumed launch carries its prompt here rather than in the command, because
++    // upstream's resume plan has no argv slot for one.
++    followup?: WorktreeStartupFollowup
    }> {
      if (opts.command || !opts.agent) {
        return {
-@@ -22609,17 +22639,35 @@ export class OrcaRuntimeService {
+@@ -22609,17 +22642,35 @@ export class OrcaRuntimeService {
        isRemote,
        terminalWindowsShell: settings.terminalWindowsShell
      })
@@ -282,7 +285,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      if (!startupPlan) {
        throw new Error(`Could not build launch command for ${opts.agent}.`)
      }
-@@ -22643,10 +22691,47 @@ export class OrcaRuntimeService {
+@@ -22643,10 +22694,43 @@ export class OrcaRuntimeService {
        envToDelete: opts.envToDelete,
        launchConfig: startupPlan.launchConfig,
        launchAgent: opts.agent,
@@ -293,14 +296,10 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 +      // upstream's buildAgentResumeStartupPlan always returns followupPrompt null — so deliver it
 +      // the way the create path already does, typed into the pane once the agent is up. Dropping
 +      // it here would discard the caller's prompt silently.
-+      ...(resumePlan && opts.agentPrompt
-+        ? {
-+            followup: {
-+              expectedProcess: startupPlan.expectedProcess,
-+              prompt: opts.agentPrompt
-+            }
-+          }
-+        : {})
++      followup:
++        resumePlan && opts.agentPrompt
++          ? { expectedProcess: startupPlan.expectedProcess, prompt: opts.agentPrompt }
++          : undefined
      }
    }
  
@@ -331,7 +330,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    private async createHeadlessMobileSessionTerminal(
      worktreeId: string,
      activate: boolean,
-@@ -22662,6 +22747,8 @@ export class OrcaRuntimeService {
+@@ -22662,6 +22746,8 @@ export class OrcaRuntimeService {
        viewMode?: 'terminal' | 'chat'
        targetGroupId?: string
        launchConfig?: SleepingAgentLaunchConfig
@@ -340,7 +339,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      } = {}
    ): Promise<RuntimeMobileSessionCreateTerminalResult> {
      const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`)
-@@ -22677,6 +22764,9 @@ export class OrcaRuntimeService {
+@@ -22677,6 +22763,9 @@ export class OrcaRuntimeService {
        envToDelete: opts.envToDelete,
        ...(opts.launchConfig ? { launchConfig: opts.launchConfig } : {}),
        ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
@@ -350,7 +349,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
        startupCommandDelivery: opts.startupCommandDelivery,
        ...(opts.identity
-@@ -22696,6 +22786,11 @@ export class OrcaRuntimeService {
+@@ -22696,6 +22785,11 @@ export class OrcaRuntimeService {
      if (!livePty) {
        throw new Error('terminal_handle_stale')
      }

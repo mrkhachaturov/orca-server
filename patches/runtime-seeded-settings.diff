@@ -320,7 +320,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-settings-seeding.te
 ===================================================================
 --- /dev/null
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-settings-seeding.test.ts
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,280 @@
 +// The load path for runtime-seeded settings: which visit adopts the workspace's declaration,
 +// what reaches localStorage, and what goes back over the wire.
 +//
@@ -483,11 +483,12 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-settings-seeding.te
 +// Things that share the GlobalSettings object with the declared appearance and must not travel.
 +// A credential here would be readable by every browser that opens the tile; a per-device size
 +// would overrule whichever screen the user happens to be on.
++// No cast: the annotation alone must reject a key that is not a GlobalSettings key, or a fixture
++// can name one that does not exist and the assertion below silently tests nothing.
 +const NOT_FOR_CLIENTS: Partial<GlobalSettings> = {
 +  opencodeSessionCookie: 'runtime-only-secret',
-+  uiZoomLevel: 3,
 +  terminalFontSize: 22
-+} as Partial<GlobalSettings>
++}
 +
 +describe('web settings seeded from the runtime store', () => {
 +  afterEach(() => {
@@ -534,7 +535,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-settings-seeding.te
 +
 +    // Stated directly as well, because these two are the ones that would matter.
 +    expect(seeded.opencodeSessionCookie).not.toBe('runtime-only-secret')
-+    expect(seeded.uiZoomLevel).not.toBe(3)
++    expect(seeded.terminalFontSize).not.toBe(22)
 +    expect(declared.storage.getItem(SETTINGS_STORAGE_KEY)).not.toContain('runtime-only-secret')
 +  }, 15_000)
 +
