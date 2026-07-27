@@ -137,3 +137,30 @@ series_entries() {
     false
   }
 }
+
+@test "every file in the submodule tree is owned by a patch" {
+  # The failure this catches is silent: `quilt add` snapshots what is on disk, so
+  # adding a file that was written first records it as unchanged and `quilt
+  # refresh` captures nothing. The file keeps working locally — it is in the
+  # working tree — while being absent from the series, so a fresh checkout loses
+  # it and test-unit, which derives its list from the series, never runs it.
+  cd "$ROOT"
+  quilt pop -a > /dev/null 2>&1 || true
+  quilt push -a > /dev/null 2>&1 || true
+
+  local owned orphans=""
+  owned="$(grep -h '^+++ orca-server/lib/orca/' "$PATCHES"/*.diff \
+    | sed 's|^+++ orca-server/lib/orca/||' \
+    | sed 's/[[:space:]].*$//' \
+    | sort -u)"
+
+  local f
+  for f in $(git -C lib/orca ls-files -o --exclude-standard); do
+    echo "$owned" | grep -qxF "$f" || orphans="$orphans $f"
+  done
+
+  [ -z "$orphans" ] || {
+    echo "in the tree but in no patch (quilt add BEFORE creating, then refresh):$orphans"
+    false
+  }
+}
