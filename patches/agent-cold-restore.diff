@@ -1,0 +1,296 @@
+Cold-restore a dead agent pane on a headless host
+
+After a workspace restart, opening an agent pane in the tile renders its full
+transcript in chat view while typing in the composer lands in a shell:
+`bash: command not found`. Native chat is a TUI wrapper that writes bytes into
+the pane's PTY, so a pane backed by a plain shell shows real history beside a
+composer talking to bash. Desktop rebuilds the resume in its renderer; `orca
+serve` has no renderer, so the materialize path launched a fresh agent at best.
+
+`resolveHeadlessAgentColdRestore` reads the host's own agent-hook rows - which
+are hydrated from disk at startup and carry `agentType` plus `providerSession` -
+by pane key, and the materialize path resumes through upstream's
+`buildAgentResumeStartupPlan` so both variants share one platform and shell
+resolution. A non-resumable agent or an unusable session id falls back to a
+fresh launch rather than failing the tab open.
+
+To test, restart the workspace, open an agent pane in the tile and continue the
+conversation: the agent should answer with full prior context and run shell
+commands. Covered by `headless-agent-cold-restore.test.ts`.
+
+Index: orca-server/lib/orca/src/main/runtime/headless-agent-cold-restore.test.ts
+===================================================================
+--- /dev/null
++++ orca-server/lib/orca/src/main/runtime/headless-agent-cold-restore.test.ts
+@@ -0,0 +1,100 @@
++/**
++ * Headless cold restore: a persisted pane whose agent died with the host must relaunch against its
++ * existing provider session, not a bare shell.
++ *
++ * Live 2026-07-27: after a workspace restart the tile rendered the transcript in chat view, but the
++ * composer wrote into a fresh `bash` — `bash: command not found: THIS`. Desktop relaunches with
++ * resume flags from the renderer (`pty-connection.ts` coldRestoreStartup); `orca serve` has no
++ * renderer, so the host must decide it from its own hook rows.
++ */
++import { describe, expect, it } from 'vitest'
++import type { AgentStatusIpcPayload } from '../../shared/agent-status-types'
++import { OrcaRuntimeService } from './orca-runtime'
++
++const TAB = '24f43d36-492f-422e-9472-3b179975ee69'
++const LEAF = 'a12b2698-61c1-4cc5-b330-99c7b945f327'
++const SESSION_ID = '582f66ac-ab96-4105-a762-8075fbf0f35d'
++
++function hookRow(overrides: Record<string, unknown> = {}): AgentStatusIpcPayload {
++  return {
++    paneKey: `${TAB}:${LEAF}`,
++    tabId: TAB,
++    connectionId: null,
++    receivedAt: 1785103715009,
++    stateStartedAt: 1785103712000,
++    state: 'done',
++    prompt: 'check what system you are running',
++    agentType: 'claude',
++    providerSession: {
++      key: 'session_id',
++      id: SESSION_ID,
++      transcriptPath: `/home/coder/.claude/projects/x/${SESSION_ID}.jsonl`
++    },
++    ...overrides
++  } as unknown as AgentStatusIpcPayload
++}
++
++type Internals = {
++  resolveHeadlessAgentColdRestore: (tab: { parentTabId: string; leafId: string }) => {
++    agent: string
++    providerSession: { id: string; key: string }
++  } | null
++}
++
++function runtimeWithRows(rows: AgentStatusIpcPayload[]): Internals {
++  return new OrcaRuntimeService({} as never, undefined as never, {
++    getAgentStatusSnapshot: () => rows
++  } as never) as unknown as Internals
++}
++
++describe('headless agent cold restore', () => {
++  it('resolves the pane agent and provider session from the host hook rows', () => {
++    // Why: this is the decision desktop makes in its renderer. Without it the materialize path only
++    // launches an agent when tab.launchAgent is set -- null on every pane measured live -- so the
++    // pane gets a plain shell and chat writes into bash.
++    const resolved = runtimeWithRows([hookRow()]).resolveHeadlessAgentColdRestore({
++      parentTabId: TAB,
++      leafId: LEAF
++    })
++
++    expect(resolved).not.toBeNull()
++    expect(resolved?.agent).toBe('claude')
++    expect(resolved?.providerSession).toMatchObject({ key: 'session_id', id: SESSION_ID })
++  })
++
++  it('declines a pane with no hook row', () => {
++    expect(
++      runtimeWithRows([]).resolveHeadlessAgentColdRestore({ parentTabId: TAB, leafId: LEAF })
++    ).toBeNull()
++  })
++
++  it('declines a non-resumable agent', () => {
++    // Why: getAgentResumeArgv has no resume form for these, so a "resume" would silently launch a
++    // fresh session against the wrong transcript.
++    expect(
++      runtimeWithRows([hookRow({ agentType: 'cursor' })]).resolveHeadlessAgentColdRestore({
++        parentTabId: TAB,
++        leafId: LEAF
++      })
++    ).toBeNull()
++  })
++
++  it('declines a hook row carrying no provider session', () => {
++    expect(
++      runtimeWithRows([hookRow({ providerSession: undefined })]).resolveHeadlessAgentColdRestore({
++        parentTabId: TAB,
++        leafId: LEAF
++      })
++    ).toBeNull()
++  })
++
++  it('declines a legacy non-UUID leaf id', () => {
++    // Why: makePaneKey throws on a non-UUID leaf; the pane key would not match a hook row anyway.
++    expect(
++      runtimeWithRows([hookRow()]).resolveHeadlessAgentColdRestore({
++        parentTabId: TAB,
++        leafId: 'pane:3'
++      })
++    ).toBeNull()
++  })
++})
+Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
++++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
+@@ -184,8 +184,14 @@ import {
+ import { getRegisteredSshState } from '../ipc/ssh'
+ import type {
+   AgentProviderSessionMetadata,
++  ResumableTuiAgent,
+   SleepingAgentLaunchConfig
+ } from '../../shared/agent-session-resume'
++// Why: value imports — agent-session-resume is a dependency-free leaf, so no cycle (see 0013).
++import {
++  isResumableTuiAgent,
++  normalizeAgentProviderSession
++} from '../../shared/agent-session-resume'
+ import type { RuntimeClientEvent } from '../../shared/runtime-client-events'
+ import { toRuntimeActivateWorktreeEvent } from '../../shared/runtime-client-events'
+ import {
+@@ -5745,11 +5751,19 @@ export class OrcaRuntimeService {
+         let agentStartup: Awaited<
+           ReturnType<OrcaRuntimeService['resolveMobileSessionTerminalCommand']>
+         > = {}
+-        if (tab.launchAgent) {
++        // Why: COLD RESTORE. The desktop renderer relaunches a dead agent pane against its existing
++        // provider session (pty-connection.ts coldRestoreStartup); `orca serve` has no renderer, so
++        // the host does it from its OWN hook rows. Client-supplied sleep records are not authority —
++        // these are read off this host's agent-hooks cache, which is why an automatic resume is
++        // authorized here while `ensureAgentSession` still refuses `kind: 'automatic'`.
++        const coldRestore = this.resolveHeadlessAgentColdRestore(tab)
++        const startupAgent = coldRestore?.agent ?? tab.launchAgent
++        if (startupAgent) {
+           try {
+             const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`)
+             agentStartup = await this.resolveMobileSessionTerminalCommand(workspace, {
+-              agent: tab.launchAgent
++              agent: startupAgent,
++              ...(coldRestore ? { resumeProviderSession: coldRestore.providerSession } : {})
+             })
+           } catch {
+             // Why: a disabled or unresolvable agent must not make the tab
+@@ -5768,7 +5782,10 @@ export class OrcaRuntimeService {
+             env: agentStartup.env,
+             startupCommandDelivery: agentStartup.startupCommandDelivery,
+             launchConfig: agentStartup.launchConfig,
+-            launchAgent: tab.launchAgent,
++            launchAgent: agentStartup.launchAgent ?? tab.launchAgent,
++            ...(agentStartup.resumeProviderSession
++              ? { resumeProviderSession: agentStartup.resumeProviderSession }
++              : {}),
+             targetGroupId
+           })
+         } catch (err) {
+@@ -22574,6 +22591,9 @@ export class OrcaRuntimeService {
+       agentPrompt?: string
+       launchConfig?: SleepingAgentLaunchConfig
+       launchAgent?: TuiAgent
++      // Why: cold restore — relaunch the agent against its existing provider session instead of a
++      // fresh one, the way the desktop renderer does (pty-connection.ts coldRestoreStartup).
++      resumeProviderSession?: AgentProviderSessionMetadata
+     }
+   ): Promise<{
+     command?: string
+@@ -22582,6 +22602,7 @@ export class OrcaRuntimeService {
+     startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
+     launchConfig?: SleepingAgentLaunchConfig
+     launchAgent?: TuiAgent
++    resumeProviderSession?: AgentProviderSessionMetadata
+   }> {
+     if (opts.command || !opts.agent) {
+       return {
+@@ -22609,17 +22630,35 @@ export class OrcaRuntimeService {
+       isRemote,
+       terminalWindowsShell: settings.terminalWindowsShell
+     })
+-    const startupPlan = buildAgentStartupPlan({
+-      agent: opts.agent,
+-      prompt: opts.agentPrompt ?? '',
+-      cmdOverrides: settings.agentCmdOverrides ?? {},
+-      agentArgs: resolveTuiAgentLaunchArgs(opts.agent, settings.agentDefaultArgs),
+-      agentEnv: resolveTuiAgentLaunchEnv(opts.agent, settings.agentDefaultEnv),
+-      platform,
+-      shell: queuedShell,
+-      isRemote,
+-      allowEmptyPromptLaunch: true
+-    })
++    // Why: same context resolution (platform/shell/overrides) for both variants; only the argv
++    // differs. A non-resumable agent or an unusable session id yields null, and we fall back to a
++    // fresh launch rather than failing the tab open.
++    const resumePlan =
++      opts.resumeProviderSession && isResumableTuiAgent(opts.agent)
++        ? buildAgentResumeStartupPlan({
++            agent: opts.agent,
++            providerSession: opts.resumeProviderSession,
++            cmdOverrides: settings.agentCmdOverrides ?? {},
++            agentArgs: resolveTuiAgentLaunchArgs(opts.agent, settings.agentDefaultArgs),
++            agentEnv: resolveTuiAgentLaunchEnv(opts.agent, settings.agentDefaultEnv),
++            platform,
++            shell: queuedShell,
++            isRemote
++          })
++        : null
++    const startupPlan =
++      resumePlan ??
++      buildAgentStartupPlan({
++        agent: opts.agent,
++        prompt: opts.agentPrompt ?? '',
++        cmdOverrides: settings.agentCmdOverrides ?? {},
++        agentArgs: resolveTuiAgentLaunchArgs(opts.agent, settings.agentDefaultArgs),
++        agentEnv: resolveTuiAgentLaunchEnv(opts.agent, settings.agentDefaultEnv),
++        platform,
++        shell: queuedShell,
++        isRemote,
++        allowEmptyPromptLaunch: true
++      })
+     if (!startupPlan) {
+       throw new Error(`Could not build launch command for ${opts.agent}.`)
+     }
+@@ -22643,8 +22682,33 @@ export class OrcaRuntimeService {
+       envToDelete: opts.envToDelete,
+       launchConfig: startupPlan.launchConfig,
+       launchAgent: opts.agent,
+-      startupCommandDelivery: startupPlan.startupCommandDelivery
++      startupCommandDelivery: startupPlan.startupCommandDelivery,
++      ...(resumePlan ? { resumeProviderSession: opts.resumeProviderSession } : {})
++    }
++  }
++
++  /** Cold-restore identity for a persisted pane, from THIS host's hook rows.
++   *
++   *  Why: the desktop reads `entry.agentType` / `entry.providerSession` off its renderer store to
++   *  decide a cold restore. Headless has no store; the same facts live in the agent-hooks cache,
++   *  hydrated from disk at startup, so they survive the restart that killed the agent. Returns null
++   *  unless the pane has a resumable agent AND a provider session to resume. */
++  private resolveHeadlessAgentColdRestore(tab: {
++    parentTabId: string
++    leafId: string
++  }): { agent: ResumableTuiAgent; providerSession: AgentProviderSessionMetadata } | null {
++    if (!isTerminalLeafId(tab.leafId) || tab.parentTabId.includes(':')) {
++      return null
+     }
++    const row = agentStatusEntriesByPaneKey(this.getAgentStatusIpcRows()).get(
++      makePaneKey(tab.parentTabId, tab.leafId)
++    )
++    const agent = row?.agentType
++    if (!row || !isResumableTuiAgent(agent)) {
++      return null
++    }
++    const providerSession = normalizeAgentProviderSession(row.providerSession)
++    return providerSession ? { agent, providerSession } : null
+   }
+ 
+   private async createHeadlessMobileSessionTerminal(
+@@ -22662,6 +22726,7 @@ export class OrcaRuntimeService {
+       viewMode?: 'terminal' | 'chat'
+       targetGroupId?: string
+       launchConfig?: SleepingAgentLaunchConfig
++      resumeProviderSession?: AgentProviderSessionMetadata
+     } = {}
+   ): Promise<RuntimeMobileSessionCreateTerminalResult> {
+     const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`)
+@@ -22677,6 +22742,9 @@ export class OrcaRuntimeService {
+       envToDelete: opts.envToDelete,
+       ...(opts.launchConfig ? { launchConfig: opts.launchConfig } : {}),
+       ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
++      ...(opts.resumeProviderSession
++        ? { resumeProviderSession: opts.resumeProviderSession }
++        : {}),
+       ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
+       startupCommandDelivery: opts.startupCommandDelivery,
+       ...(opts.identity

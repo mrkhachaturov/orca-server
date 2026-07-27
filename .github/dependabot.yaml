@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "chore"
+
+  # The Orca submodule is deliberately NOT listed. It is bumped by
+  # .github/workflows/update.yaml, which restacks the patch series onto the new
+  # tag and opens a PR for a human to re-justify every patch. A dependency bot
+  # would move the pointer and leave the series broken.

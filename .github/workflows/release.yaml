@@ -1,0 +1,99 @@
+name: Draft release
+
+# Builds the AppImage and uploads it to a DRAFT release whose body is the
+# Unreleased section of CHANGELOG.md. A human reviews the draft and publishes it.
+#
+# Triggered by hand, or automatically when an upstream bump pull request from
+# update/* merges.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Orca tag to release, e.g. v1.4.156"
+        type: string
+        required: true
+      patch:
+        description: "Our patch number. Bump it to re-release the same Orca tag."
+        type: string
+        required: false
+        default: "0"
+  pull_request_target:
+    types:
+      - closed
+    branches:
+      - main
+
+permissions:
+  contents: write # For creating releases.
+  discussions: write # For creating a discussion.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  appimage:
+    name: linux-x64
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true && startsWith(github.head_ref, 'update/'))
+
+    env:
+      TAG: ${{ inputs.version || github.event.pull_request.head.ref || github.ref_name }}
+
+    steps:
+      - name: Strip update/ and v from the tag
+        run: |
+          version=${TAG#update/}
+          echo "ORCA_TAG=v${version#v}" >> $GITHUB_ENV
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      # The submodule commit is the only real pin. Releasing a tag that
+      # disagrees with it would ship a build nobody can reproduce from the repo.
+      - name: Check the submodule is on the tag being released
+        run: |
+          pinned="$(git -C lib/orca describe --tags --exact-match)"
+          if [[ "$pinned" != "$ORCA_TAG" ]] ; then
+            echo "lib/orca is on $pinned but the release says $ORCA_TAG"
+            exit 1
+          fi
+
+      # Derived by ci/lib.sh, the same function the build uses to name the
+      # artifact, so the release tag and the file inside it cannot disagree.
+      - name: Set our version
+        run: |
+          source ./ci/lib.sh
+          echo "VERSION=$(orca_server_version '${{ inputs.patch || '0' }}')" >> $GITHUB_ENV
+
+      - uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: quilt
+          version: 1.0
+
+      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+
+      - run: quilt push -a
+
+      - run: ./ci/dev/test-scripts.sh
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - run: ./ci/build/build-appimage.sh '${{ inputs.patch || '0' }}'
+
+      - run: |
+          mkdir -p .cache
+          sed "/^## Unreleased/,/^## / ! d" CHANGELOG.md | head -n -2 | tail -n +3 > .cache/release-notes
+
+      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          draft: true
+          discussion_category_name: "Announcements"
+          files: dist/*.AppImage
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          body_path: .cache/release-notes

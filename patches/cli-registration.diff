@@ -1,0 +1,317 @@
+Register the Orca CLI from the web client
+
+Every agent-skill setup card (Orchestration, Browser Use, Computer Use, Linear,
+Ephemeral VMs, Mobile Emulator, Settings > CLI) warned "Orca CLI registration is
+unavailable" and could never register `orca-ide`, because `createCliApi()` in
+the web preload was a hardcoded `supported:false` stub. The terminal those
+cards open runs on the connected server, where the CLI genuinely exists.
+
+Three runtime RPC methods - `cli.getInstallStatus`, `cli.install` and
+`cli.remove` - reuse the exact `CliInstaller` behind the desktop IPC handlers,
+with the same shell-path hydration so `pathConfigured` matches what a PTY sees.
+All three mutate the host, so none of them is on `MOBILE_RPC_METHOD_ALLOWLIST`:
+a paired phone must never register or remove host commands.
+
+To test, open Settings > CLI in the tile, register the CLI, then run `orca-ide`
+in a terminal on the workspace. Covered by `cli.test.ts` and
+`mobile-rpc-allowlist.test.ts`.
+
+Index: orca-server/lib/orca/src/main/ipc/cli.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/main/ipc/cli.ts
++++ orca-server/lib/orca/src/main/ipc/cli.ts
+@@ -56,21 +56,31 @@ async function hydrateLocalShellPathForC
+   }
+ }
+ 
++// Why: exported so the runtime RPC (`cli.*`) can reuse the exact IPC behavior —
++// the web client's terminals run on THIS server, so it must probe/register the
++// server's `orca-ide`, not anything in the browser. Same shell-path hydration
++// as the desktop handlers keeps `pathConfigured` matched to what a PTY sees.
++export async function getCliInstallStatusWithShellPathHydration(): Promise<CliInstallStatus> {
++  await hydrateLocalShellPathForCli()
++  return new CliInstaller().getStatus()
++}
++
++export async function installCliWithShellPathHydration(): Promise<CliInstallStatus> {
++  await hydrateLocalShellPathForCli(true)
++  return new CliInstaller().install()
++}
++
++export async function removeCliWithShellPathHydration(): Promise<CliInstallStatus> {
++  await hydrateLocalShellPathForCli()
++  return new CliInstaller().remove()
++}
++
+ export function registerCliHandlers(): void {
+-  ipcMain.handle('cli:getInstallStatus', async (): Promise<CliInstallStatus> => {
+-    await hydrateLocalShellPathForCli()
+-    return new CliInstaller().getStatus()
+-  })
+-
+-  ipcMain.handle('cli:install', async (): Promise<CliInstallStatus> => {
+-    await hydrateLocalShellPathForCli(true)
+-    return new CliInstaller().install()
+-  })
+-
+-  ipcMain.handle('cli:remove', async (): Promise<CliInstallStatus> => {
+-    await hydrateLocalShellPathForCli()
+-    return new CliInstaller().remove()
+-  })
++  ipcMain.handle('cli:getInstallStatus', getCliInstallStatusWithShellPathHydration)
++
++  ipcMain.handle('cli:install', installCliWithShellPathHydration)
++
++  ipcMain.handle('cli:remove', removeCliWithShellPathHydration)
+ 
+   ipcMain.handle(
+     'cli:getWslInstallStatus',
+Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
++++ orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+@@ -161,4 +161,26 @@ describe('mobile RPC allowlist', () => {
+       )
+     ).toEqual([])
+   })
++
++  it('does not grant mobile credentials control over host CLI registration', () => {
++    // Why: cli.install/remove symlink `orca-ide` into ~/.local/bin on the
++    // workspace host — a host mutation. Only the full runtime-scope web client
++    // (agent-skill setup) may register the CLI; a paired phone must not. The
++    // status probe rides the same gate so the surface stays runtime-only.
++    const allowed = mobileRpcAllowlist()
++    expect(
++      ['cli.getInstallStatus', 'cli.install', 'cli.remove'].filter((method) => allowed.has(method))
++    ).toEqual([])
++  })
++
++  it('registers the runtime-only CLI registration methods', () => {
++    // Why: the web client routes agent-skill CLI setup through these; if one is
++    // dropped from ALL_RPC_METHODS the setup card silently reverts to "CLI
++    // registration is unavailable".
++    const registered = registeredRuntimeMethods()
++    const missing = ['cli.getInstallStatus', 'cli.install', 'cli.remove'].filter(
++      (method) => !registered.has(method)
++    )
++    expect(missing).toEqual([])
++  })
+ })
+Index: orca-server/lib/orca/src/main/runtime/rpc/methods/cli.test.ts
+===================================================================
+--- /dev/null
++++ orca-server/lib/orca/src/main/runtime/rpc/methods/cli.test.ts
+@@ -0,0 +1,82 @@
++import { describe, expect, it, vi, beforeEach } from 'vitest'
++import { RpcDispatcher } from '../dispatcher'
++import type { RpcRequest } from '../core'
++import type { OrcaRuntimeService } from '../../orca-runtime'
++import type { CliInstallStatus } from '../../../../shared/cli-install-types'
++
++const mocks = vi.hoisted(() => ({
++  getStatus: vi.fn(),
++  install: vi.fn(),
++  remove: vi.fn()
++}))
++
++vi.mock('../../../ipc/cli', () => ({
++  getCliInstallStatusWithShellPathHydration: mocks.getStatus,
++  installCliWithShellPathHydration: mocks.install,
++  removeCliWithShellPathHydration: mocks.remove
++}))
++
++// Imported after the mock so the method module binds to the stubs.
++const { CLI_METHODS } = await import('./cli')
++
++function makeRequest(method: string, params?: unknown): RpcRequest {
++  return { id: 'req-1', authToken: 'tok', method, params }
++}
++
++const installedStatus: CliInstallStatus = {
++  platform: 'linux',
++  commandName: 'orca-ide',
++  commandPath: '/home/coder/.local/bin/orca-ide',
++  pathDirectory: '/home/coder/.local/bin',
++  pathConfigured: true,
++  launcherPath: '/opt/orca.AppImage',
++  installMethod: 'wrapper',
++  supported: true,
++  state: 'installed',
++  currentTarget: '/opt/orca.AppImage',
++  unsupportedReason: null,
++  detail: 'Registered at /home/coder/.local/bin/orca-ide.'
++}
++
++describe('cli RPC methods', () => {
++  // Why: the handlers never touch the runtime service — they delegate to the
++  // ipc/cli helpers — so a bare stub is enough for the dispatcher wiring.
++  const runtime = { getRuntimeId: () => 'test-runtime' } as unknown as OrcaRuntimeService
++
++  beforeEach(() => {
++    mocks.getStatus.mockReset()
++    mocks.install.mockReset()
++    mocks.remove.mockReset()
++  })
++
++  it('returns the server CLI install status', async () => {
++    mocks.getStatus.mockResolvedValue(installedStatus)
++    const dispatcher = new RpcDispatcher({ runtime, methods: CLI_METHODS })
++
++    const response = await dispatcher.dispatch(makeRequest('cli.getInstallStatus'))
++
++    expect(mocks.getStatus).toHaveBeenCalledTimes(1)
++    expect(response).toMatchObject({ ok: true, result: installedStatus })
++  })
++
++  it('registers the CLI via the server installer', async () => {
++    mocks.install.mockResolvedValue(installedStatus)
++    const dispatcher = new RpcDispatcher({ runtime, methods: CLI_METHODS })
++
++    const response = await dispatcher.dispatch(makeRequest('cli.install'))
++
++    expect(mocks.install).toHaveBeenCalledTimes(1)
++    expect(response).toMatchObject({ ok: true, result: installedStatus })
++  })
++
++  it('removes the CLI registration via the server installer', async () => {
++    const removedStatus: CliInstallStatus = { ...installedStatus, state: 'not_installed' }
++    mocks.remove.mockResolvedValue(removedStatus)
++    const dispatcher = new RpcDispatcher({ runtime, methods: CLI_METHODS })
++
++    const response = await dispatcher.dispatch(makeRequest('cli.remove'))
++
++    expect(mocks.remove).toHaveBeenCalledTimes(1)
++    expect(response).toMatchObject({ ok: true, result: removedStatus })
++  })
++})
+Index: orca-server/lib/orca/src/main/runtime/rpc/methods/cli.ts
+===================================================================
+--- /dev/null
++++ orca-server/lib/orca/src/main/runtime/rpc/methods/cli.ts
+@@ -0,0 +1,34 @@
++import { defineMethod, type RpcMethod } from '../core'
++import {
++  getCliInstallStatusWithShellPathHydration,
++  installCliWithShellPathHydration,
++  removeCliWithShellPathHydration
++} from '../../../ipc/cli'
++
++// Why: the web client has no local Orca CLI — its terminals run on THIS server,
++// so the `orca-ide` command that agent-skill setup must resolve lives on the
++// workspace host. These mirror the `cli:` IPC handlers (getInstallStatus /
++// install / remove); WSL registration is a Windows-desktop concern and is
++// intentionally not exposed on a headless Linux serve.
++//
++// install/remove MUTATE the host (symlink in ~/.local/bin), so all three stay
++// OUT of MOBILE_RPC_METHOD_ALLOWLIST — a paired phone (mobile scope) must never
++// register or remove commands on the workspace host. Runtime-scope clients (the
++// trusted-proxy web tile) reach them the same way they reach terminal.*/files.*.
++export const CLI_METHODS: RpcMethod[] = [
++  defineMethod({
++    name: 'cli.getInstallStatus',
++    params: null,
++    handler: async () => getCliInstallStatusWithShellPathHydration()
++  }),
++  defineMethod({
++    name: 'cli.install',
++    params: null,
++    handler: async () => installCliWithShellPathHydration()
++  }),
++  defineMethod({
++    name: 'cli.remove',
++    params: null,
++    handler: async () => removeCliWithShellPathHydration()
++  })
++]
+Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/index.ts
++++ orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
+@@ -38,6 +38,7 @@ import { EMULATOR_METHODS } from './emul
+ import { PAIRING_METHODS } from './pairing'
+ import { MOBILE_PAIRING_METHODS } from './mobile-pairing'
+ import { UPDATER_METHODS } from './updater'
++import { CLI_METHODS } from './cli'
+ import { AGENT_SESSION_METHODS } from './agent-session'
+ 
+ // Why: a flat manifest keeps registration order explicit and provides one
+@@ -83,5 +84,6 @@ export const ALL_RPC_METHODS: readonly R
+   ...EMULATOR_METHODS,
+   ...PAIRING_METHODS,
+   ...MOBILE_PAIRING_METHODS,
+-  ...UPDATER_METHODS
++  ...UPDATER_METHODS,
++  ...CLI_METHODS
+ ]
+Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+@@ -37,6 +37,7 @@ import type {
+   WorkspaceSessionPatch,
+   WorkspaceSessionState
+ } from '../../../shared/types'
++import type { CliInstallStatus } from '../../../shared/cli-install-types'
+ import type { SkillDiscoveryResult } from '../../../shared/skills'
+ import type { SkillFreshnessInventory } from '../../../shared/skill-freshness'
+ import type { SshConnectionState, SshTarget } from '../../../shared/ssh-types'
+@@ -2753,7 +2754,9 @@ function createPreflightApi(): NonNullab
+ }
+ 
+ function createCliApi(): NonNullable<Partial<PreloadApi>['cli']> {
+-  const status = {
++  // Why: with no server connected yet, the browser genuinely can't register a
++  // CLI — report unsupported honestly instead of pretending it can.
++  const disconnectedStatus: CliInstallStatus = {
+     platform: getBrowserPlatform(),
+     commandName: getBrowserPlatform() === 'linux' ? 'orca-ide' : 'orca',
+     commandPath: null,
+@@ -2765,15 +2768,40 @@ function createCliApi(): NonNullable<Par
+     state: 'unsupported',
+     currentTarget: null,
+     unsupportedReason: 'launch_mode_unavailable',
+-    detail: 'CLI registration is managed on the Orca server, not in the web browser.'
+-  } as const
++    detail: 'Connect to an Orca server before registering its CLI.'
++  }
++  // Why: WSL registration is a Windows-desktop affordance; a headless Linux
++  // serve has no WSL, so answer unsupported rather than route a method the
++  // server does not implement. (Linux status.platform hides WSL UI anyway.)
++  const wslUnsupportedStatus: CliInstallStatus = {
++    ...disconnectedStatus,
++    detail: 'WSL CLI registration is only available on the Windows desktop app.'
++  }
+   return {
+-    getInstallStatus: () => Promise.resolve(status),
+-    install: () => Promise.resolve(status),
+-    remove: () => Promise.resolve(status),
+-    getWslInstallStatus: (_args?: { distro?: string | null }) => Promise.resolve(status),
+-    installWsl: (_args?: { distro?: string | null }) => Promise.resolve(status),
+-    removeWsl: (_args?: { distro?: string | null }) => Promise.resolve(status)
++    // Why: the CLI that matters is the connected SERVER's — its terminals resolve
++    // `orca-ide` from the workspace PATH, not from this browser. Route the real
++    // cli: surface (getInstallStatus/install/remove) through runtime RPC so
++    // agent-skill setup sees the same status the desktop app would. A read probe
++    // stays resilient (fall back on transient failure); install/remove surface
++    // real server errors so the prerequisite toast reports them, matching desktop.
++    getInstallStatus: () =>
++      requireActiveEnvironmentOrNull()
++        ? callRuntimeResult<CliInstallStatus>('cli.getInstallStatus').catch(
++            () => disconnectedStatus
++          )
++        : Promise.resolve(disconnectedStatus),
++    install: () =>
++      requireActiveEnvironmentOrNull()
++        ? callRuntimeResult<CliInstallStatus>('cli.install')
++        : Promise.resolve(disconnectedStatus),
++    remove: () =>
++      requireActiveEnvironmentOrNull()
++        ? callRuntimeResult<CliInstallStatus>('cli.remove')
++        : Promise.resolve(disconnectedStatus),
++    getWslInstallStatus: (_args?: { distro?: string | null }) =>
++      Promise.resolve(wslUnsupportedStatus),
++    installWsl: (_args?: { distro?: string | null }) => Promise.resolve(wslUnsupportedStatus),
++    removeWsl: (_args?: { distro?: string | null }) => Promise.resolve(wslUnsupportedStatus)
+   } as NonNullable<Partial<PreloadApi>['cli']>
+ }
+ 

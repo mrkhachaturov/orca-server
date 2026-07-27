@@ -1,0 +1,20 @@
+# Host toolchain. The AppImage itself is built in a hermetic Docker sandbox
+# (Dockerfile), so the host needs only light tooling.
+#
+# quilt is deliberately absent: it is in neither the mise registry nor the pkgx
+# pantry. Install it the way code-server does — `brew install quilt` on macOS,
+# `apt-get install quilt` on Debian/Ubuntu. It is an authoring tool only; the
+# build applies the series with `git apply`, so only the upstream-bump workflow
+# needs it in CI.
+min_version = "2026.7.12"
+
+[tools]
+jq = "1.8.2"         # reads the pinned Orca version out of lib/orca/package.json
+bats = "1.14.0"      # test/scripts — series integrity
+"npm:prettier" = "3.9.6" # formats markdown, yaml and json
+"npm:doctoc" = "2.5.0"   # generates the tables of contents in docs/
+shellcheck = "0.11.0" # ci/dev/lint-scripts.sh
+ruff = "0.16.0"      # lints the agent tooling under .claude/skills/
+
+[hooks]
+enter = ["mise install"]

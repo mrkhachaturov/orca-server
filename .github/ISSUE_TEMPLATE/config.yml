@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question?
+    url: https://github.com/mrkhachaturov/orca-server/discussions/new?category=q-a
+    about: Ask on the discussions board
+  - name: Upstream Orca issue
+    url: https://github.com/stablyai/orca/issues
+    about: If it reproduces in the desktop Orca app, it belongs upstream, not here

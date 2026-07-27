@@ -1,0 +1,652 @@
+Serve the web client behind a trusted proxy with no pairing prompt
+
+Stock `orca serve` delivers its pairing token only in the URL fragment, but a
+Coder tile URL is fixed at template-build time, so a stock tile lands on a
+"paste a pairing code" form. Trusted mode solves it the way code-server's
+`--auth none` does: bind the runtime WS listener to loopback and trust the proxy
+that already authenticated, exposing the offer over a loopback-gated
+`GET /trusted-session`. Orca's E2EE is intact - only the credential's delivery
+moved from the fragment to a loopback fetch.
+
+The web client dials same-origin from `window.location`, so the tile needs no
+`--pairing-address`, and on `auth-failed` it re-probes and adopts a new offer.
+Trusted-session devices are named "Web session <date>" so the shared-access list
+reads honestly.
+
+To test, open the workspace tile: the full Orca web UI should load with no
+pairing prompt. See `static-web-client-handler.test.ts` - the endpoint serves
+the offer with `Cache-Control: no-store` to a loopback peer, 404s a non-loopback
+one, 503s before an offer can be minted, works behind a path prefix, and is
+absent entirely when trusted-proxy mode is off.
+
+Index: orca-server/lib/orca/src/cli/handlers/core.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/cli/handlers/core.ts
++++ orca-server/lib/orca/src/cli/handlers/core.ts
+@@ -129,6 +129,7 @@ export const CORE_HANDLERS: Record<strin
+       noPairing: flags.get('no-pairing') === true,
+       mobilePairing: flags.get('mobile-pairing') === true,
+       recipeJson: flags.get('recipe-json') === true,
++      trustedProxy: flags.get('trusted-proxy') === true,
+       projectRoot
+     })
+     process.exitCode = exitCode
+Index: orca-server/lib/orca/src/cli/runtime/launch.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/cli/runtime/launch.ts
++++ orca-server/lib/orca/src/cli/runtime/launch.ts
+@@ -82,6 +82,7 @@ export function serveOrcaApp(
+     noPairing?: boolean
+     mobilePairing?: boolean
+     recipeJson?: boolean
++    trustedProxy?: boolean
+     projectRoot?: string | null
+   } = {}
+ ): Promise<number> {
+@@ -106,6 +107,9 @@ export function serveOrcaApp(
+   if (args.mobilePairing) {
+     childArgs.push('--serve-mobile-pairing')
+   }
++  if (args.trustedProxy) {
++    childArgs.push('--serve-trusted-proxy')
++  }
+   if (args.recipeJson) {
+     if (!args.projectRoot) {
+       throw new RuntimeClientError(
+Index: orca-server/lib/orca/src/cli/specs/serve.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/cli/specs/serve.ts
++++ orca-server/lib/orca/src/cli/specs/serve.ts
+@@ -6,11 +6,12 @@ export const SERVE_COMMAND_SPECS: Comman
+     path: ['serve'],
+     summary: 'Start an Orca runtime server without opening a desktop window',
+     usage:
+-      'orca serve [--port <port>] [--pairing-address <host>] [--mobile-pairing] [--no-pairing] [--project-root <path>] [--recipe-json] [--json]',
++      'orca serve [--port <port>] [--pairing-address <host>] [--trusted-proxy] [--mobile-pairing] [--no-pairing] [--project-root <path>] [--recipe-json] [--json]',
+     allowedFlags: [
+       ...GLOBAL_FLAGS,
+       'port',
+       'pairing-address',
++      'trusted-proxy',
+       'mobile-pairing',
+       'no-pairing',
+       'project-root',
+@@ -21,6 +22,7 @@ export const SERVE_COMMAND_SPECS: Comman
+       '--pairing-address changes only the client-advertised address; use a reachable LAN, Tailscale, SSH-forward, or reverse-proxy endpoint.',
+       'Use --recipe-json with --project-root from VM recipes to print the recipe result JSON and leave the server running.',
+       'Use --mobile-pairing to print a mobile-scoped pairing QR/link instead of the default runtime-environment pairing link.',
++      'Use --trusted-proxy behind a reverse proxy (e.g. Coder) that already enforces auth: binds loopback only and serves the pairing offer at GET /trusted-session so a proxied browser connects without a URL token. The web client dials back same-origin, so --pairing-address is optional — pass it only when a non-browser client needs a different advertised endpoint.',
+       'When the web client bundle is available, the server also prints a browser URL with the pairing data embedded.'
+     ],
+     examples: [
+Index: orca-server/lib/orca/src/main/index.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/main/index.ts
++++ orca-server/lib/orca/src/main/index.ts
+@@ -1492,6 +1492,8 @@ type ServeOptions = {
+   mobilePairing: boolean
+   recipeJson: boolean
+   projectRoot: string | null
++  // Why: reverse-proxy (Coder) front. Bind loopback only and auto-issue the pairing offer over /trusted-session so a proxied browser opens the E2EE channel without a URL-fragment token.
++  trustedProxy: boolean
+ }
+ 
+ function getServeOptions(argv = process.argv): ServeOptions {
+@@ -1519,7 +1521,8 @@ function getServeOptions(argv = process.
+     noPairing: argv.includes('--serve-no-pairing'),
+     mobilePairing: argv.includes('--serve-mobile-pairing'),
+     recipeJson: argv.includes('--serve-recipe-json'),
+-    projectRoot: valueAfter('--serve-project-root')
++    projectRoot: valueAfter('--serve-project-root'),
++    trustedProxy: argv.includes('--serve-trusted-proxy')
+   }
+ }
+ 
+@@ -2325,7 +2328,10 @@ app.whenReady().then(async () => {
+           preferPinnedWsPort: true
+         }
+       : {}),
+-    webClientRoot: getBundledWebClientRoot()
++    webClientRoot: getBundledWebClientRoot(),
++    ...(serveOptions?.trustedProxy
++      ? { trustedProxy: true, trustedProxyAddress: serveOptions.pairingAddress }
++      : {})
+   })
+   registerMobileHandlers(runtimeRpc, {
+     getRelayStatus: () => desktopRelayStatus,
+Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.test.ts
+===================================================================
+--- /dev/null
++++ orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.test.ts
+@@ -0,0 +1,92 @@
++import type { IncomingMessage, ServerResponse } from 'node:http'
++import { describe, expect, it, vi } from 'vitest'
++import { createStaticWebClientHandler } from './static-web-client-handler'
++
++const PAIRING_URL = 'orca://pair?code=test-offer'
++
++function requestFrom(url: string, remoteAddress: string | undefined): IncomingMessage {
++  return { method: 'GET', url, headers: {}, socket: { remoteAddress } } as unknown as IncomingMessage
++}
++
++function responseSpy(): {
++  response: ServerResponse
++  headers: Map<string, string>
++  body: () => string | undefined
++  ended: () => boolean
++} {
++  const headers = new Map<string, string>()
++  let body: string | undefined
++  let ended = false
++  const response = {
++    statusCode: 0,
++    setHeader: (name: string, value: string) => {
++      headers.set(name.toLowerCase(), value)
++    },
++    end: (chunk?: string) => {
++      body = chunk
++      ended = true
++    }
++  } as unknown as ServerResponse
++  return { response, headers, body: () => body, ended: () => ended }
++}
++
++async function handle(
++  url: string,
++  remoteAddress: string | undefined,
++  provider: () => string | null
++): Promise<{ response: ServerResponse; headers: Map<string, string>; body: () => string | undefined }> {
++  const handler = createStaticWebClientHandler('/nonexistent-static-root', {
++    trustedSessionProvider: provider
++  })
++  const spy = responseSpy()
++  handler(requestFrom(url, remoteAddress), spy.response)
++  // Why: the listener dispatches into an async worker with `void`, so let it settle.
++  await vi.waitFor(() => expect(spy.ended()).toBe(true))
++  return spy
++}
++
++describe('GET /trusted-session', () => {
++  it('serves the offer to a loopback peer and forbids caching it', async () => {
++    // Why: the payload is a device credential plus E2EE material. A proxy or browser
++    // caching it would hand runtime access to whoever reads the cache next.
++    for (const remote of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
++      const { response, headers, body } = await handle('/trusted-session', remote, () => PAIRING_URL)
++      expect(response.statusCode).toBe(200)
++      expect(headers.get('cache-control')).toBe('no-store')
++      expect(JSON.parse(body() ?? '{}')).toEqual({ pairingUrl: PAIRING_URL })
++    }
++  })
++
++  it('hides the endpoint from a non-loopback peer', async () => {
++    // Why: loopback IS the authorization — it is proof the request arrived through the
++    // front proxy, which already authenticated. 404 rather than 403 so an off-host
++    // scanner cannot even learn the endpoint exists.
++    for (const remote of ['10.1.125.4', '::ffff:10.1.125.4', undefined]) {
++      const { response, body } = await handle('/trusted-session', remote, () => PAIRING_URL)
++      expect(response.statusCode).toBe(404)
++      expect(body()).toBeUndefined()
++    }
++  })
++
++  it('answers 503 while no offer can be minted yet', async () => {
++    // Why: a healthcheck must not treat "still starting" as "reachable"; the tile's
++    // readiness probe uses /web-index.html for exactly this reason.
++    const { response } = await handle('/trusted-session', '127.0.0.1', () => null)
++    expect(response.statusCode).toBe(503)
++  })
++
++  it('matches the endpoint behind a reverse-proxy path prefix', async () => {
++    const { response } = await handle('/workspace/orca/trusted-session', '127.0.0.1', () => PAIRING_URL)
++    expect(response.statusCode).toBe(200)
++  })
++
++  it('stays absent when trusted-proxy mode is off', async () => {
++    // Why: opt-in. Without --trusted-proxy there is no provider, so the path falls
++    // through to the static allowlist and 404s like any unknown file.
++    const handler = createStaticWebClientHandler('/nonexistent-static-root')
++    const spy = responseSpy()
++    handler(requestFrom('/trusted-session', '127.0.0.1'), spy.response)
++    await vi.waitFor(() => expect(spy.ended()).toBe(true))
++    expect(spy.response.statusCode).toBe(404)
++  })
++})
+Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
++++ orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
+@@ -17,17 +17,57 @@ const STATIC_WEB_CONTENT_TYPES = new Map
+   ['.woff2', 'font/woff2']
+ ])
+ 
+-export function createStaticWebClientHandler(staticRoot: string): RequestListener {
++export type StaticWebClientHandlerOptions = {
++  // Why: when present, GET /trusted-session returns the current pairing offer (loopback-gated) so a reverse-proxy-fronted browser opens the E2EE channel without a URL-fragment token. Returns null when no offer can be minted.
++  trustedSessionProvider?: () => string | null
++}
++
++export function createStaticWebClientHandler(
++  staticRoot: string,
++  options: StaticWebClientHandlerOptions = {}
++): RequestListener {
+   const resolvedRoot = resolve(staticRoot)
+   return (request, response) => {
+-    void handleStaticRequest(resolvedRoot, request, response)
++    void handleStaticRequest(resolvedRoot, request, response, options)
++  }
++}
++
++// Why: mirrors code-server's `bind-addr: 127.0.0.1` + `--auth none` trust model — a loopback peer is proof the request arrived through the front proxy (Coder), which already enforced auth. The listener also binds loopback-only in trusted-proxy mode; this is defense in depth.
++// Threat model (accepted, by design): loopback gating means ANY local process on the host can read the offer and gain runtime access — identical to code-server's --auth none posture, where same-machine implies same-owner. --trusted-proxy is therefore only safe on single-owner hosts (e.g. a per-user Coder workspace), not on shared multi-user machines.
++function isLoopbackRemote(remoteAddress: string | undefined): boolean {
++  return (
++    remoteAddress === '127.0.0.1' ||
++    remoteAddress === '::1' ||
++    remoteAddress === '::ffff:127.0.0.1'
++  )
++}
++
++function handleTrustedSessionRequest(
++  request: IncomingMessage,
++  response: ServerResponse,
++  provider: () => string | null
++): void {
++  if (!isLoopbackRemote(request.socket.remoteAddress)) {
++    writeHttpStatus(response, 404)
++    return
+   }
++  const pairingUrl = provider()
++  if (!pairingUrl) {
++    writeHttpStatus(response, 503)
++    return
++  }
++  response.statusCode = 200
++  response.setHeader('Content-Type', 'application/json; charset=utf-8')
++  // Why: the payload carries a device credential; never let a proxy or browser cache it.
++  response.setHeader('Cache-Control', 'no-store')
++  response.end(JSON.stringify({ pairingUrl }))
+ }
+ 
+ async function handleStaticRequest(
+   staticRoot: string,
+   request: IncomingMessage,
+-  response: ServerResponse
++  response: ServerResponse,
++  options: StaticWebClientHandlerOptions
+ ): Promise<void> {
+   if (request.method !== 'GET' && request.method !== 'HEAD') {
+     response.setHeader('Allow', 'GET, HEAD')
+@@ -40,6 +80,14 @@ async function handleStaticRequest(
+     writeHttpStatus(response, 400)
+     return
+   }
++  // Why: match by suffix like the static allowlist below — under a reverse-proxy path prefix the pathname arrives as `/<prefix>/trusted-session`.
++  if (
++    options.trustedSessionProvider &&
++    (pathname === '/trusted-session' || pathname.endsWith('/trusted-session'))
++  ) {
++    handleTrustedSessionRequest(request, response, options.trustedSessionProvider)
++    return
++  }
+   if (!isAllowedStaticWebPath(pathname)) {
+     writeHttpStatus(response, 404)
+     return
+Index: orca-server/lib/orca/src/main/runtime/rpc/ws-transport.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/main/runtime/rpc/ws-transport.ts
++++ orca-server/lib/orca/src/main/runtime/rpc/ws-transport.ts
+@@ -41,6 +41,8 @@ export type WebSocketTransportOptions =
+   fallbackPort?: number
+   // Why: serve --port clients dial the pinned port; prefer it first so a stale fallback can't steal the pin (issue #8535). Default keeps fallback-first (STA-1511).
+   preferPinnedPort?: boolean
++  // Why: trusted-proxy mode. Serves the current pairing offer over GET /trusted-session (loopback-gated) so a reverse-proxy-fronted browser opens the E2EE channel without a URL-fragment token. Returns null when no offer can be minted.
++  trustedSessionProvider?: () => string | null
+ }
+ 
+ export class WebSocketTransport implements RpcTransport {
+@@ -53,6 +55,7 @@ export class WebSocketTransport implemen
+   private readonly staticRoot: string | undefined
+   private readonly fallbackPort: number | undefined
+   private readonly preferPinnedPort: boolean
++  private readonly trustedSessionProvider: (() => string | null) | undefined
+   private httpServer: HttpsServer | HttpServer | null = null
+   private wss: WebSocketServer | null = null
+   private messageHandler: WebSocketMessageHandler | null = null
+@@ -74,7 +77,8 @@ export class WebSocketTransport implemen
+     preAuthTimeoutMs,
+     staticRoot,
+     fallbackPort,
+-    preferPinnedPort
++    preferPinnedPort,
++    trustedSessionProvider
+   }: WebSocketTransportOptions) {
+     this.host = host
+     this.port = port
+@@ -89,6 +93,7 @@ export class WebSocketTransport implemen
+     this.staticRoot = staticRoot
+     this.fallbackPort = fallbackPort
+     this.preferPinnedPort = preferPinnedPort === true
++    this.trustedSessionProvider = trustedSessionProvider
+   }
+ 
+   onMessage(handler: WebSocketMessageHandler): void {
+@@ -163,7 +168,12 @@ export class WebSocketTransport implemen
+ 
+   private createHttpServer(): HttpServer | HttpsServer {
+     const requestListener = this.staticRoot
+-      ? createStaticWebClientHandler(this.staticRoot)
++      ? createStaticWebClientHandler(
++          this.staticRoot,
++          this.trustedSessionProvider
++            ? { trustedSessionProvider: this.trustedSessionProvider }
++            : undefined
++        )
+       : undefined
+     return this.tlsCert && this.tlsKey
+       ? createHttpsServer({ cert: this.tlsCert, key: this.tlsKey }, requestListener)
+Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/main/runtime/runtime-rpc.ts
++++ orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
+@@ -54,6 +54,10 @@ type OrcaRuntimeRpcServerOptions = {
+   // Why: true when the caller pinned a port (`orca serve --port`) so bind order prefers it over a stale STA-1511 fallback (#8535).
+   preferPinnedWsPort?: boolean
+   webClientRoot?: string
++  // Why: reverse-proxy (Coder) front. Bind loopback only + serve the pairing offer over /trusted-session so a proxied browser opens the E2EE channel without a URL-fragment token. Loopback reachability is the proof the request came through the trusted proxy.
++  trustedProxy?: boolean
++  // Why: client-advertised ws endpoint baked into the trusted-session offer (the reverse-proxy address), since the loopback bind can't advertise itself.
++  trustedProxyAddress?: string | null
+   // Why: test-only overrides for the two constants below; production must not pass these (defaults set by §3.1).
+   keepaliveIntervalMs?: number
+   longPollCap?: number
+@@ -438,6 +442,8 @@ export class OrcaRuntimeRpcServer {
+   private readonly wsPort: number
+   private readonly preferPinnedWsPort: boolean
+   private readonly webClientRoot: string | undefined
++  private readonly trustedProxy: boolean
++  private readonly trustedProxyAddress: string | null
+   private readonly authToken = randomBytes(24).toString('hex')
+   private readonly keepaliveIntervalMs: number
+   private readonly longPollCap: number
+@@ -472,6 +478,8 @@ export class OrcaRuntimeRpcServer {
+     wsPort = DEFAULT_WS_PORT,
+     preferPinnedWsPort = false,
+     webClientRoot,
++    trustedProxy = false,
++    trustedProxyAddress = null,
+     keepaliveIntervalMs = KEEPALIVE_INTERVAL_MS,
+     longPollCap = LONG_POLL_CAP
+   }: OrcaRuntimeRpcServerOptions) {
+@@ -484,6 +492,8 @@ export class OrcaRuntimeRpcServer {
+     this.wsPort = wsPort
+     this.preferPinnedWsPort = preferPinnedWsPort
+     this.webClientRoot = webClientRoot
++    this.trustedProxy = trustedProxy
++    this.trustedProxyAddress = trustedProxyAddress
+     this.keepaliveIntervalMs = keepaliveIntervalMs
+     this.longPollCap = longPollCap
+     this.relayRevokeOutbox = new RelayRevokeOutbox(userDataPath)
+@@ -577,6 +587,19 @@ export class OrcaRuntimeRpcServer {
+     return ws?.endpoint ?? null
+   }
+ 
++  // Why: trusted-proxy web sessions fetch this same-origin over loopback instead of carrying the token in the URL fragment. Returns the same runtime pairing offer the fragment would, so the E2EE handshake is unchanged; the browser just receives the credential from a loopback-gated endpoint rather than the address bar.
++  private buildTrustedSessionOffer(): string | null {
++    const offer = this.createPairingOffer({
++      address: this.trustedProxyAddress,
++      scope: 'runtime',
++      // Why: without a name these mint as the "CLI <date>" default, so browser
++      // sessions masquerade as command-line clients in the shared-access list.
++      // Named device classes are the upstream convention (Mobile/Runtime <date>).
++      name: `Web session ${new Date().toLocaleDateString()}`
++    })
++    return offer.available ? offer.pairingUrl : null
++  }
++
+   createPairingOffer(args: {
+     address?: string | null
+     name?: string
+@@ -900,10 +923,15 @@ export class OrcaRuntimeRpcServer {
+         this.e2eeKeypair = pairingIdentity.e2eeKeypair
+         this.pairingInitializationFailure = null
+         try {
++          // Why: trusted-proxy mode binds loopback only, so the only way a packet reaches this port is through the front proxy (Coder), which already enforced auth.
++          const wsHost = this.trustedProxy ? '127.0.0.1' : '0.0.0.0'
+           const wsTransport = new WebSocketTransport({
+-            host: '0.0.0.0',
++            host: wsHost,
+             port: this.wsPort,
+             staticRoot: this.webClientRoot,
++            ...(this.trustedProxy && this.webClientRoot
++              ? { trustedSessionProvider: (): string | null => this.buildTrustedSessionOffer() }
++              : {}),
+             // Why: stable fallback port across restarts keeps paired devices' endpoints valid (STA-1511); wsPort 0 = random (E2E).
+             ...(this.wsPort !== 0 ? { fallbackPort: readWsFallbackPort(this.userDataPath) } : {}),
+             ...(this.preferPinnedWsPort ? { preferPinnedPort: true } : {})
+@@ -966,7 +994,8 @@ export class OrcaRuntimeRpcServer {
+           activeTransports.push(wsTransport)
+           transportsMeta.push({
+             kind: 'websocket',
+-            endpoint: `ws://0.0.0.0:${wsTransport.resolvedPort}`
++            // Why: report the actual bind host — a trusted-proxy loopback bind advertised as 0.0.0.0 misleads operators reading orca_server_ready.
++            endpoint: `ws://${wsHost}:${wsTransport.resolvedPort}`
+           })
+         } catch (error) {
+           // Why: WebSocket transport is supplementary; on failure (e.g. port in use) continue with Unix socket only.
+Index: orca-server/lib/orca/src/renderer/src/web/main.tsx
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/web/main.tsx
++++ orca-server/lib/orca/src/renderer/src/web/main.tsx
+@@ -1,6 +1,6 @@
+ import '../assets/main.css'
+ 
+-import { Suspense, useMemo, useState } from 'react'
++import { Suspense, useEffect, useMemo, useState } from 'react'
+ import { lazyWithRetry as lazy } from '@/lib/lazy-with-retry'
+ import ReactDOM from 'react-dom/client'
+ import { useTranslation } from 'react-i18next'
+@@ -9,7 +9,10 @@ import { RecoverableRenderErrorBoundary
+ import {
+   clearPairingInputFromAddressBar,
+   decideWebPairingStartup,
+-  readPairingInputFromLocation
++  fetchTrustedSessionPairingInput,
++  parseWebPairingInput,
++  readPairingInputFromLocation,
++  sameOriginWebSocketEndpoint
+ } from './web-pairing'
+ import {
+   createStoredWebRuntimeEnvironment,
+@@ -52,6 +55,50 @@ function WebRoot(): React.JSX.Element {
+     }
+     return startupDecision.kind === 'use-stored-environment'
+   })
++  // Why: trusted-proxy mode — no fragment offer and no stored environment means we
++  // may be behind a reverse proxy (Coder) that serves the offer over /trusted-session.
++  // Probe it before falling back to the manual connect form, so a proxied browser
++  // pairs itself with no URL token.
++  const [trustedProbe, setTrustedProbe] = useState<'pending' | 'done'>(() =>
++    !hasEnvironment &&
++    startupDecision.kind === 'show-connect' &&
++    startupDecision.initialPairingInput === null
++      ? 'pending'
++      : 'done'
++  )
++  useEffect(() => {
++    if (trustedProbe !== 'pending') {
++      return
++    }
++    let active = true
++    void fetchTrustedSessionPairingInput().then((input) => {
++      if (!active) {
++        return
++      }
++      const offer = input ? parseWebPairingInput(input) : null
++      if (offer && offer.scope === 'runtime') {
++        saveStoredWebRuntimeEnvironment(
++          createStoredWebRuntimeEnvironment({
++            name: 'Orca Server',
++            // Why: keep the server's E2EE credential but dial same-origin — the browser
++            // loaded from the correct Coder subdomain, so window.location is the reachable
++            // address for any workspace name, with no --pairing-address to misconfigure.
++            offer: { ...offer, endpoint: sameOriginWebSocketEndpoint(window.location) },
++            previousEnvironment: readStoredWebRuntimeEnvironment()
++          })
++        )
++        setHasEnvironment(true)
++      }
++      setTrustedProbe('done')
++    })
++    return () => {
++      active = false
++    }
++  }, [trustedProbe])
++
++  if (!hasEnvironment && trustedProbe === 'pending') {
++    return <div className="min-h-dvh bg-background" />
++  }
+ 
+   if (!hasEnvironment) {
+     return (
+Index: orca-server/lib/orca/src/renderer/src/web/web-pairing.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/web/web-pairing.ts
++++ orca-server/lib/orca/src/renderer/src/web/web-pairing.ts
+@@ -74,6 +74,36 @@ export function decideWebPairingStartup(
+     : { kind: 'show-connect', initialPairingInput: null }
+ }
+ 
++// Why: trusted-proxy mode delivers the runtime offer same-origin over loopback instead of the URL fragment. Fetched relative to the page so a reverse-proxy path prefix is preserved. Returns a pairing input string the normal parse path accepts, or null when not behind a trusted proxy.
++export async function fetchTrustedSessionPairingInput(): Promise<string | null> {
++  try {
++    const url = new URL('trusted-session', window.location.href).toString()
++    const response = await fetch(url, { headers: { accept: 'application/json' } })
++    if (!response.ok) {
++      return null
++    }
++    const data = (await response.json()) as { pairingUrl?: unknown }
++    return typeof data.pairingUrl === 'string' && data.pairingUrl.length > 0
++      ? data.pairingUrl
++      : null
++  } catch {
++    return null
++  }
++}
++
++// Why: code-server's proven reverse-proxy rule — the client, not the server, knows the
++// reachable base. A Coder subdomain is `<app>--<workspace>--<owner>.<domain>`, dynamic per
++// workspace name, so the loopback-bound runtime can't advertise it. But the browser already
++// loaded from it: window.location IS the address. In trusted mode keep the offer's E2EE
++// credential (server-authoritative) but dial its endpoint same-origin, so the web client
++// connects back exactly where it loaded from — any workspace name, no --pairing-address needed
++// (the page's directory preserves a reverse-proxy path prefix, mirroring code-server's relativeRoot).
++export function sameOriginWebSocketEndpoint(location: Location): string {
++  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
++  const basePath = location.pathname.replace(/\/[^/]*$/, '/')
++  return `${protocol}//${location.host}${basePath}`
++}
++
+ export function clearPairingInputFromAddressBar(): void {
+   if (!window.location.hash && !window.location.search) {
+     return
+Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+@@ -106,7 +106,11 @@ import {
+   updateStoredEnvironmentRuntimeId,
+   type StoredWebRuntimeEnvironment
+ } from './web-runtime-environment'
+-import { parseWebPairingInput } from './web-pairing'
++import {
++  fetchTrustedSessionPairingInput,
++  parseWebPairingInput,
++  sameOriginWebSocketEndpoint
++} from './web-pairing'
+ import { WebRuntimeClient } from './web-runtime-client'
+ import { RuntimeRpcCallQueuePool } from '../../../shared/runtime-rpc-call-queue'
+ import {
+@@ -3272,10 +3276,46 @@ async function getRemoteRuntimeStatus():
+   return callRuntimeResult<RuntimeStatus>('status.get', undefined, 15_000)
+ }
+ 
++// Why: trusted-proxy mode — a serve restart mints a fresh pairing offer, so the stored
++// environment's device token dies with the old process and every reconnect lands on
++// auth-failed. Re-probe /trusted-session: a NEW offer means the server re-keyed — adopt it
++// same-origin and reload; the SAME token means this credential was genuinely rejected —
++// fall through to stock behavior (manual re-pair). No-op when not behind a trusted proxy
++// (the probe 404s). The token comparison is also the reload-loop guard.
++let trustedSessionRecoveryInFlight = false
++async function attemptTrustedSessionRecovery(failedDeviceToken: string): Promise<void> {
++  if (trustedSessionRecoveryInFlight) {
++    return
++  }
++  trustedSessionRecoveryInFlight = true
++  try {
++    const input = await fetchTrustedSessionPairingInput()
++    const offer = input ? parseWebPairingInput(input) : null
++    if (!offer || offer.scope !== 'runtime' || offer.deviceToken === failedDeviceToken) {
++      return
++    }
++    saveStoredWebRuntimeEnvironment(
++      createStoredWebRuntimeEnvironment({
++        name: 'Orca Server',
++        offer: { ...offer, endpoint: sameOriginWebSocketEndpoint(window.location) },
++        previousEnvironment: readStoredWebRuntimeEnvironment()
++      })
++    )
++    window.location.reload()
++  } finally {
++    trustedSessionRecoveryInFlight = false
++  }
++}
++
+ function getClientForEnvironment(environment: StoredWebRuntimeEnvironment): WebRuntimeClient {
+   if (!activeClient || activeClientEnvironmentId !== environment.id) {
+     activeClient?.close()
+-    activeClient = new WebRuntimeClient(getPreferredWebPairingOffer(environment))
++    const offer = getPreferredWebPairingOffer(environment)
++    activeClient = new WebRuntimeClient(offer, {
++      onAuthFailed: () => {
++        void attemptTrustedSessionRecovery(offer.deviceToken)
++      }
++    })
+     activeClientEnvironmentId = environment.id
+   }
+   return activeClient
+Index: orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/web/web-runtime-client.ts
++++ orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
+@@ -90,7 +90,11 @@ export class WebRuntimeClient {
+   private readonly waiters: { resolve: () => void; reject: (error: Error) => void }[] = []
+   private readonly serverPublicKey: Uint8Array
+ 
+-  constructor(private readonly pairing: WebPairingOffer) {
++  constructor(
++    private readonly pairing: WebPairingOffer,
++    // Why: trusted-proxy recovery needs to observe the auth-failed transition — the client owns the socket state machine, but only the environment layer can re-fetch /trusted-session and swap the stored credential.
++    private readonly hooks: { onAuthFailed?: () => void } = {}
++  ) {
+     this.serverPublicKey = publicKeyFromBase64(pairing.publicKeyB64)
+     this.openConnection()
+   }
+@@ -645,6 +649,7 @@ export class WebRuntimeClient {
+   }
+ 
+   private setState(next: WebRuntimeConnectionState): void {
++    const previous = this.state
+     this.state = next
+     if (next === 'connected') {
+       this.replayInterruptedSubscriptions()
+@@ -654,6 +659,10 @@ export class WebRuntimeClient {
+       }
+     } else if (next === 'auth-failed') {
+       this.rejectAllWaiters(new Error('Unauthorized. Pair this web client again.'))
++      // Why: fire only on the transition — the close path re-asserts auth-failed and must not retrigger recovery.
++      if (previous !== 'auth-failed') {
++        this.hooks.onAuthFailed?.()
++      }
+     }
+   }
+ 

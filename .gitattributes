@@ -1,0 +1,7 @@
+# Patches are byte-exact artifacts: never let git rewrite their line endings,
+# and never let a merge driver reflow them.
+*.diff -text -merge
+patches/series text eol=lf
+
+# Shell scripts must stay LF even on a Windows checkout.
+*.sh text eol=lf

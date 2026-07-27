@@ -1,0 +1,2 @@
+# Revisions to skip in `git blame` — bulk reformatting only, never logic.
+# Add a commit here the same day you land a repo-wide format change.

@@ -1,0 +1,115 @@
+Show the workspace's own processes in the web Resource Manager
+
+Resource Manager showed all zeros in the tile: the web preload's
+`memory.getSnapshot` was an empty-snapshot stub. It now routes to the runtime's
+`diagnostics.memory` method, which paired phones already poll, so the tile
+reports the workspace host's processes and its RAM and CPU. The empty snapshot
+survives only as the fallback for when no environment is connected.
+
+To test, open Resource Manager in the tile and confirm it lists the workspace's
+processes rather than zeros. Covered by `web-preload-api.test.ts`.
+
+Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.test.ts
++++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
+@@ -3856,3 +3856,78 @@ describe('web GitLab preload API', () =>
+     ])
+   })
+ })
++
++describe('web resource manager', () => {
++  beforeEach(() => {
++    vi.resetModules()
++  })
++
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  it('reports the runtime processes rather than the browser it runs in', async () => {
++    // Why: the Resource Manager exists to show terminals and agents, and in the tile
++    // those run on the server. A browser has no process table worth showing, so an
++    // unrouted panel renders all-zero rows that look like an idle host.
++    const runtimeCalls: string[] = []
++    vi.doMock('./web-runtime-client', () => ({
++      WebRuntimeClient: class {
++        call(method: string): Promise<RuntimeRpcResponse<unknown>> {
++          runtimeCalls.push(method)
++          return Promise.resolve({
++            id: 'call-1',
++            ok: true,
++            result: {
++              app: { cpu: 4, memory: 128, main: { cpu: 1, memory: 32 } },
++              worktrees: [{ worktreeId: 'w-1', cpu: 12, memory: 512 }],
++              host: { totalMemory: 2048, cpuCoreCount: 4 },
++              totalCpu: 16,
++              totalMemory: 640,
++              collectedAt: 99
++            },
++            _meta: { runtimeId: 'runtime-1' }
++          })
++        }
++
++        close(): void {}
++      }
++    }))
++
++    const globals = installBrowserGlobals('Linux')
++    writeStoredRuntimeEnvironment(globals.storage)
++    const { installWebPreloadApi } = await import('./web-preload-api')
++    installWebPreloadApi()
++
++    const snapshot = await globals.window.api.memory.getSnapshot()
++
++    expect(runtimeCalls).toContain('diagnostics.memory')
++    expect(snapshot.totalCpu).toBe(16)
++    expect(snapshot.worktrees).toHaveLength(1)
++    expect(snapshot.collectedAt).toBe(99)
++  })
++
++  it('falls back to an empty snapshot instead of throwing when the runtime cannot answer', async () => {
++    // Why: Resource Manager is a panel, not a gate — a disconnected server must render
++    // empty rows, never break the settings surface it lives on.
++    vi.doMock('./web-runtime-client', () => ({
++      WebRuntimeClient: class {
++        call(): Promise<RuntimeRpcResponse<unknown>> {
++          return Promise.reject(new Error('runtime unreachable'))
++        }
++
++        close(): void {}
++      }
++    }))
++
++    const globals = installBrowserGlobals('Linux')
++    writeStoredRuntimeEnvironment(globals.storage)
++    const { installWebPreloadApi } = await import('./web-preload-api')
++    installWebPreloadApi()
++
++    const snapshot = await globals.window.api.memory.getSnapshot()
++
++    expect(snapshot.totalCpu).toBe(0)
++    expect(snapshot.worktrees).toEqual([])
++  })
++})
+Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+@@ -770,7 +770,15 @@ function createWebPreloadApi(): Partial<
+         }))
+     },
+     memory: {
+-      getSnapshot: () => Promise.resolve(createEmptyMemorySnapshot())
++      // Why: the Resource Manager should show the RUNTIME's processes — its
++      // terminals and agents run on the server, not in this browser. The
++      // server's diagnostics.memory returns the same MemorySnapshot shape the
++      // desktop main builds locally (phones already poll it); fall back to the
++      // empty snapshot only when no environment is connected.
++      getSnapshot: () =>
++        callRuntimeResult<MemorySnapshot>('diagnostics.memory').catch(() =>
++          createEmptyMemorySnapshot()
++        )
+     },
+     aiVault: createAiVaultApi(),
+     preflight: createPreflightApi(),

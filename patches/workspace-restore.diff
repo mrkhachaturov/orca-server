@@ -1,0 +1,225 @@
+Restore the web client's last active workspace after a restart
+
+After a workspace restart the tile lands on Landing - "Select a workspace from
+the sidebar to begin" - even though the sidebar lists every worktree. Upstream's
+paired-client session read already restores this from `ui.lastActiveRepoId` and
+`ui.lastActiveWorktreeId`, but nothing anywhere writes those two fields: the
+producer was never implemented, on desktop or on web, so the boot session is
+empty and Landing renders.
+
+`rememberWebActiveWorkspace` records the pointer from the web session adapter
+through the existing `ui.set` RPC, which persists into the host's own `ui` slice
+- so a browser with empty storage, or a different browser entirely, still
+restores. Only the `local` partition is read, the write is memoized so it fires
+on change rather than on every session write, and a failed RPC drops the memo so
+the next write retries. `getStoredWorkspaceSession` falls back to the browser's
+sanitized copy when the host pointer is absent.
+
+To test, open a worktree in the tile, restart the workspace, and reload: that
+worktree should be active. Repeat in a browser with cleared storage. Covered by
+`web-preload-api.test.ts`.
+
+Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.test.ts
++++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
+@@ -188,6 +188,103 @@ describe('web before-unload persistence'
+   })
+ })
+ 
++describe('web workspace restore', () => {
++  beforeEach(() => {
++    vi.resetModules()
++  })
++
++  afterEach(() => {
++    vi.unstubAllGlobals()
++  })
++
++  function mockRuntimeUiSlice(
++    runtimeCalls: { method: string; params: unknown }[],
++    ui: Record<string, unknown>
++  ): void {
++    vi.doMock('./web-runtime-client', () => ({
++      WebRuntimeClient: class {
++        call(method: string, params?: unknown): Promise<RuntimeRpcResponse<unknown>> {
++          runtimeCalls.push({ method, params })
++          return Promise.resolve({
++            id: `call-${runtimeCalls.length}`,
++            ok: true,
++            result: { ui: { featureInteractions: {}, contextualToursSeenIds: [], ...ui } },
++            _meta: { runtimeId: 'runtime-1' }
++          })
++        }
++
++        close(): void {}
++      }
++    }))
++  }
++
++  it('records the active workspace on the host so a fresh browser restores it', async () => {
++    const writeCalls: { method: string; params: unknown }[] = []
++    mockRuntimeUiSlice(writeCalls, {})
++
++    const before = installBrowserGlobals('Linux')
++    writeStoredRuntimeEnvironment(before.storage)
++    const { installWebPreloadApi } = await import('./web-preload-api')
++    installWebPreloadApi()
++
++    await before.window.api.session.set({
++      activeRepoId: 'repo-1',
++      activeWorktreeId: 'repo-1::/w/feature'
++    } as never)
++
++    // The pointer upstream's paired-client session read already consumes, finally written.
++    expect(writeCalls).toEqual([
++      {
++        method: 'ui.set',
++        params: { lastActiveRepoId: 'repo-1', lastActiveWorktreeId: 'repo-1::/w/feature' }
++      }
++    ])
++
++    // Restart: a browser with no session and no ui of its own, only the pairing.
++    vi.resetModules()
++    vi.unstubAllGlobals()
++    const readCalls: { method: string; params: unknown }[] = []
++    mockRuntimeUiSlice(readCalls, {
++      lastActiveRepoId: 'repo-1',
++      lastActiveWorktreeId: 'repo-1::/w/feature'
++    })
++
++    const after = installBrowserGlobals('Linux')
++    writeStoredRuntimeEnvironment(after.storage)
++    const restarted = await import('./web-preload-api')
++    restarted.installWebPreloadApi()
++
++    // Boot order: App.tsx awaits ui.get() before reading the session.
++    await after.window.api.ui.get()
++    const restored = await after.window.api.session.get()
++
++    expect(after.storage.getItem('orca.web.workspaceSession.v1')).toBeNull()
++    expect(restored.activeRepoId).toBe('repo-1')
++    expect(restored.activeWorktreeId).toBe('repo-1::/w/feature')
++    expect(readCalls.map((call) => call.method)).toEqual(['ui.get'])
++  }, 15_000)
++
++  it('never takes the active workspace from a non-local host partition', async () => {
++    const runtimeCalls: { method: string; params: unknown }[] = []
++    mockRuntimeUiSlice(runtimeCalls, {})
++
++    const globals = installBrowserGlobals('Linux')
++    writeStoredRuntimeEnvironment(globals.storage)
++    const { installWebPreloadApi } = await import('./web-preload-api')
++    installWebPreloadApi()
++
++    await globals.window.api.session.set(
++      { activeRepoId: 'repo-2', activeWorktreeId: 'repo-2::/w/other' } as never,
++      'runtime:web-env-1'
++    )
++
++    expect(runtimeCalls).toEqual([])
++    expect(JSON.parse(globals.storage.getItem('orca.web.ui.v1') ?? '{}')).not.toMatchObject({
++      lastActiveWorktreeId: 'repo-2::/w/other'
++    })
++  }, 15_000)
++})
++
+ describe('web runtime environment identity', () => {
+   beforeEach(() => {
+     vi.resetModules()
+Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+@@ -525,6 +525,7 @@ function createWebPreloadApi(): Partial<
+         // guarantees immediate browser-local durability for the final snapshot.
+         for (const { state, hostId } of sessions) {
+           writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(state))
++          rememberWebActiveWorkspace(state, hostId)
+         }
+         writeJson(UI_STORAGE_KEY, mergeWebUIState(readLocalWebUIState(), ui))
+       },
+@@ -734,6 +735,7 @@ function createWebPreloadApi(): Partial<
+       get: (hostId) => Promise.resolve(getStoredWorkspaceSession(hostId)),
+       set: async (session, hostId) => {
+         writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(session))
++        rememberWebActiveWorkspace(session, hostId)
+       },
+       patch: async (patch: WorkspaceSessionPatch, hostId) => {
+         writeJson(
+@@ -743,12 +745,14 @@ function createWebPreloadApi(): Partial<
+             ...patch
+           })
+         )
++        rememberWebActiveWorkspace(patch, hostId)
+       },
+       // localStorage writes synchronously, so there is no deferred web flush.
+       flush: async () => {},
+       readTerminalScrollback: () => null,
+       setSync: (session, hostId) => {
+         writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(session))
++        rememberWebActiveWorkspace(session, hostId)
+       }
+     },
+     onboarding: {
+@@ -3796,12 +3800,58 @@ function getStoredWorkspaceSession(hostI
+   // Why: replaying browser-local terminal handles first creates stale remote PTYs; mirror host session-tabs instead.
+   return sanitizeWebRuntimeWorkspaceSession({
+     ...getDefaultWorkspaceSession(),
+-    activeRepoId: ui.lastActiveRepoId,
+-    activeWorktreeId: ui.lastActiveWorktreeId,
++    // Why: the host pointer is authoritative; the browser copy only covers a client paired before it was recorded.
++    activeRepoId: ui.lastActiveRepoId ?? localSession.activeRepoId,
++    activeWorktreeId: ui.lastActiveWorktreeId ?? localSession.activeWorktreeId,
+     lastVisitedAtByWorktreeId: localSession.lastVisitedAtByWorktreeId
+   })
+ }
+ 
++type WebActiveWorkspacePointer = Pick<
++  PersistedUIState,
++  'lastActiveRepoId' | 'lastActiveWorktreeId'
++>
++
++let rememberedActiveWorkspace: WebActiveWorkspacePointer | null = null
++
++/** Record the workspace getStoredWorkspaceSession restores from, in the host's ui slice.
++ *
++ *  Why: a paired browser keeps no session — sanitizeWebRuntimeWorkspaceSession drops it and the
++ *  tabs come back over session.tabs — so the only thing that has to survive a restart is which
++ *  workspace was open. Upstream already reads that back from ui.lastActive*, but nothing writes
++ *  it, so a restarted tile lands on the Landing screen with every worktree in the sidebar. */
++function rememberWebActiveWorkspace(
++  session: Partial<WorkspaceSessionState>,
++  hostId?: string | null
++): void {
++  // Why: these are global session fields — cloned onto every host slice, owned by 'local'.
++  if ((normalizeExecutionHostId(hostId) ?? LOCAL_EXECUTION_HOST_ID) !== LOCAL_EXECUTION_HOST_ID) {
++    return
++  }
++  if (!('activeRepoId' in session) && !('activeWorktreeId' in session)) {
++    return
++  }
++  const pointer: WebActiveWorkspacePointer = {
++    lastActiveRepoId: session.activeRepoId ?? null,
++    lastActiveWorktreeId: session.activeWorktreeId ?? null
++  }
++  if (
++    rememberedActiveWorkspace?.lastActiveRepoId === pointer.lastActiveRepoId &&
++    rememberedActiveWorkspace.lastActiveWorktreeId === pointer.lastActiveWorktreeId
++  ) {
++    return
++  }
++  rememberedActiveWorkspace = pointer
++  writeJson(UI_STORAGE_KEY, mergeWebUIState(readLocalWebUIState(), pointer))
++  if (!requireActiveEnvironmentOrNull()) {
++    return
++  }
++  void callRuntimeResult('ui.set', pointer, 15_000).catch(() => {
++    // Why: an unreachable host must not break session persistence; drop the memo so the next write retries.
++    rememberedActiveWorkspace = null
++  })
++}
++
+ function closeWebOnboarding(base: OnboardingState): OnboardingState {
+   return {
+     ...base,

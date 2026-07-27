@@ -1,0 +1,116 @@
+name: Bug report
+description: File a bug report
+labels: ["bug", "triage"]
+body:
+  - type: checkboxes
+    attributes:
+      label: Is there an existing issue for this?
+      description: Please search to see if an issue already exists for the bug you encountered.
+      options:
+        - label: I have searched the existing issues
+          required: true
+
+  - type: textarea
+    attributes:
+      label: Environment
+      description: |
+        examples:
+          - **Web Browser**: Chrome 141
+          - **Server OS**: Debian 13
+          - **orca-server version**: v1.156.0
+          - **Orca version**: v1.4.156, from the About dialog
+          - **Reverse proxy**: Caddy, Traefik, Coder, none
+
+        Please do not put "latest" for a version.
+      value: |
+        - Web Browser:
+        - Server OS:
+        - orca-server version:
+        - Orca version:
+        - Reverse proxy:
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Describe exactly how to reproduce the bug. For example:
+        1. Open a worktree
+        2. Start an agent, then switch the pane from terminal to chat
+        3. Restart the server and open the same pane again
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Expected
+      description: What should happen?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Actual
+      description: What actually happens?
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Does this reproduce in the desktop Orca app?
+      description: |
+        If it also breaks in the desktop app, it is upstream's and belongs at
+        https://github.com/stablyai/orca/issues instead.
+      options:
+        - Yes, the desktop app is broken too
+        - No, the desktop app works
+        - This cannot be tested in the desktop app
+        - I did not test the desktop app
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Does this reproduce in a browser pointed at a desktop Orca?
+      description: |
+        This is the question that decides who owns the bug, and it takes two minutes.
+        In the desktop app open Settings, Remote Orca Servers, Advertise this app as a
+        server, New Link, then open the browser URL it gives you.
+
+        Breaking there as well means the gap is in Orca's browser client, which most of
+        our patch series exists to close. Working there but not here means it is ours.
+      options:
+        - Yes, the browser is broken against the desktop app too
+        - No, the browser works against the desktop app
+        - This cannot be tested that way
+        - I did not test that way
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Paste anything relevant from the server's stdout (or `journalctl -u orca-server`),
+        the browser console, and the browser network tab.
+      render: shell
+
+  - type: textarea
+    attributes:
+      label: Screenshot or video
+      description: A screenshot or recording of the failure, if the bug is visible.
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Notes
+      description: Anything else that would help.
+    validations:
+      required: false
