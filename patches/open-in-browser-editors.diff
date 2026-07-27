@@ -1955,19 +1955,19 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuRow.t
 +// runtime, the seeded entry is invisible to the user it was seeded for.
 +
 +import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-+import { afterEach, describe, expect, it, vi } from 'vitest'
-+import { OpenInMenuRow } from './OpenInMenuRow'
++import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
++import { OpenInMenuRow, type OpenInMenuRowProps } from './OpenInMenuRow'
 +import type { OpenInApplication } from '../../../../shared/types'
 +
 +afterEach(cleanup)
 +
 +const TEMPLATE = 'https://code-server--proj--me.example.com/?folder={path}'
 +
++// Why the mocks are typed from the component's own props rather than left as bare `vi.fn()`:
++// an untyped mock is `Mock<Procedure>`, which satisfies nothing, so a prop renamed or given a new
++// signature upstream would still compile here and the case would quietly stop testing the row.
 +type Handlers = {
-+  onEditToggle: ReturnType<typeof vi.fn>
-+  onRemove: ReturnType<typeof vi.fn>
-+  onChange: ReturnType<typeof vi.fn>
-+  onCommit: ReturnType<typeof vi.fn>
++  [K in 'onEditToggle' | 'onRemove' | 'onChange' | 'onCommit']: Mock<OpenInMenuRowProps[K]>
 +}
 +
 +function renderRow(application: OpenInApplication, editing = true): Handlers {
