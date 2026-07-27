@@ -2,23 +2,33 @@ Serve the web client behind a trusted proxy with no pairing prompt
 
 Stock `orca serve` delivers its pairing token only in the URL fragment, but a
 Coder tile URL is fixed at template-build time, so a stock tile lands on a
-"paste a pairing code" form. Trusted mode solves it the way code-server's
-`--auth none` does: bind the runtime WS listener to loopback and trust the proxy
-that already authenticated, exposing the offer over a loopback-gated
-`GET /trusted-session`. Orca's E2EE is intact - only the credential's delivery
-moved from the fragment to a loopback fetch.
+"paste a pairing code" form. Trusted mode borrows code-server's trust model -
+bind the runtime WS listener to loopback and treat that bind as proof the proxy
+already authenticated - but not its mechanism. code-server's `--auth none`
+serves no credential at all; an Orca pairing offer carries `publicKeyB64`
+alongside `deviceToken` and is the channel's key material rather than an
+authorisation check, so `WebRuntimeClient` cannot be constructed without it. The
+credential can only be delivered differently, never skipped, so delivery moves
+from the URL fragment to a loopback-gated `GET /trusted-session`. E2EE is
+intact - `createPairingOffer` is reused unmodified and the client replaces only
+the transport endpoint.
 
 The web client dials same-origin from `window.location`, so the tile needs no
 `--pairing-address`, and on `auth-failed` it re-probes and adopts a new offer.
 Trusted-session devices are named "Web session <date>" so the shared-access list
 reads honestly.
 
+The endpoint answers at exactly `/trusted-session` and nowhere else. A
+credential must not be reachable from an arbitrary path, least of all from under
+`/assets/`, and a deployment's URL shape belongs in the operator's proxy
+template rather than in a prefix this handler tries to guess.
+
 To test, open the workspace tile: the full Orca web UI should load with no
 pairing prompt. See `static-web-client-handler.test.ts` - the endpoint serves
 the offer with `Cache-Control: no-store` to a loopback peer, 404s a non-loopback
-one, 503s before an offer can be minted, works behind a path prefix, and is
+one, 503s before an offer can be minted, 404s a nested path such as
+`/assets/foo/trusted-session`, answers `HEAD` with headers and no body, and is
 absent entirely when trusted-proxy mode is off.
-
 Index: orca-server/lib/orca/src/cli/handlers/core.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/cli/handlers/core.ts
@@ -118,15 +128,19 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.test.
 ===================================================================
 --- /dev/null
 +++ orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.test.ts
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,122 @@
 +import type { IncomingMessage, ServerResponse } from 'node:http'
 +import { describe, expect, it, vi } from 'vitest'
 +import { createStaticWebClientHandler } from './static-web-client-handler'
 +
 +const PAIRING_URL = 'orca://pair?code=test-offer'
 +
-+function requestFrom(url: string, remoteAddress: string | undefined): IncomingMessage {
-+  return { method: 'GET', url, headers: {}, socket: { remoteAddress } } as unknown as IncomingMessage
++function requestFrom(
++  url: string,
++  remoteAddress: string | undefined,
++  method = 'GET'
++): IncomingMessage {
++  return { method, url, headers: {}, socket: { remoteAddress } } as unknown as IncomingMessage
 +}
 +
 +function responseSpy(): {
@@ -154,19 +168,20 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.test.
 +async function handle(
 +  url: string,
 +  remoteAddress: string | undefined,
-+  provider: () => string | null
++  provider: () => string | null,
++  method = 'GET'
 +): Promise<{ response: ServerResponse; headers: Map<string, string>; body: () => string | undefined }> {
 +  const handler = createStaticWebClientHandler('/nonexistent-static-root', {
 +    trustedSessionProvider: provider
 +  })
 +  const spy = responseSpy()
-+  handler(requestFrom(url, remoteAddress), spy.response)
++  handler(requestFrom(url, remoteAddress, method), spy.response)
 +  // Why: the listener dispatches into an async worker with `void`, so let it settle.
 +  await vi.waitFor(() => expect(spy.ended()).toBe(true))
 +  return spy
 +}
 +
-+describe('GET /trusted-session', () => {
++describe('/trusted-session', () => {
 +  it('serves the offer to a loopback peer and forbids caching it', async () => {
 +    // Why: the payload is a device credential plus E2EE material. A proxy or browser
 +    // caching it would hand runtime access to whoever reads the cache next.
@@ -196,9 +211,34 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.test.
 +    expect(response.statusCode).toBe(503)
 +  })
 +
-+  it('matches the endpoint behind a reverse-proxy path prefix', async () => {
-+    const { response } = await handle('/workspace/orca/trusted-session', '127.0.0.1', () => PAIRING_URL)
++  it('serves the credential from its own path and nowhere else', async () => {
++    // Why: the payload is a real runtime credential, so it must not be reachable from an
++    // arbitrary path — least of all from under /assets/, which a proxy or CDN may treat
++    // as public and cacheable. A deployment's URL prefix belongs in the operator's proxy
++    // template, not in a suffix this handler tries to guess.
++    for (const url of [
++      '/assets/foo/trusted-session',
++      '/workspace/orca/trusted-session',
++      '/a/b/c/trusted-session'
++    ]) {
++      const { response, body } = await handle(url, '127.0.0.1', () => PAIRING_URL)
++      expect({ url, statusCode: response.statusCode }).toEqual({ url, statusCode: 404 })
++      expect(body()).toBeUndefined()
++    }
++  })
++
++  it('answers HEAD with the headers and no body', async () => {
++    // Why: HTTP requires HEAD to carry no message body. Writing the credential JSON as one
++    // leaks it into every intermediary and log that records HEAD responses as bodyless.
++    const { response, headers, body } = await handle(
++      '/trusted-session',
++      '127.0.0.1',
++      () => PAIRING_URL,
++      'HEAD'
++    )
 +    expect(response.statusCode).toBe(200)
++    expect(headers.get('cache-control')).toBe('no-store')
++    expect(body()).toBeUndefined()
 +  })
 +
 +  it('stays absent when trusted-proxy mode is off', async () => {
@@ -215,7 +255,7 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
 +++ orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
-@@ -17,17 +17,57 @@ const STATIC_WEB_CONTENT_TYPES = new Map
+@@ -17,17 +17,63 @@ const STATIC_WEB_CONTENT_TYPES = new Map
    ['.woff2', 'font/woff2']
  ])
  
@@ -254,17 +294,23 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
 +  if (!isLoopbackRemote(request.socket.remoteAddress)) {
 +    writeHttpStatus(response, 404)
 +    return
-   }
++  }
 +  const pairingUrl = provider()
 +  if (!pairingUrl) {
 +    writeHttpStatus(response, 503)
 +    return
-+  }
+   }
++  const body = JSON.stringify({ pairingUrl })
 +  response.statusCode = 200
 +  response.setHeader('Content-Type', 'application/json; charset=utf-8')
++  response.setHeader('Content-Length', Buffer.byteLength(body))
 +  // Why: the payload carries a device credential; never let a proxy or browser cache it.
 +  response.setHeader('Cache-Control', 'no-store')
-+  response.end(JSON.stringify({ pairingUrl }))
++  if (request.method === 'HEAD') {
++    response.end()
++    return
++  }
++  response.end(body)
  }
  
  async function handleStaticRequest(
@@ -276,15 +322,12 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
  ): Promise<void> {
    if (request.method !== 'GET' && request.method !== 'HEAD') {
      response.setHeader('Allow', 'GET, HEAD')
-@@ -40,6 +80,14 @@ async function handleStaticRequest(
+@@ -40,6 +86,11 @@ async function handleStaticRequest(
      writeHttpStatus(response, 400)
      return
    }
-+  // Why: match by suffix like the static allowlist below — under a reverse-proxy path prefix the pathname arrives as `/<prefix>/trusted-session`.
-+  if (
-+    options.trustedSessionProvider &&
-+    (pathname === '/trusted-session' || pathname.endsWith('/trusted-session'))
-+  ) {
++  // Why: exact match only — the payload is a device credential, so it must not be reachable from an arbitrary path such as `/assets/foo/trusted-session`.
++  if (options.trustedSessionProvider && pathname === '/trusted-session') {
 +    handleTrustedSessionRequest(request, response, options.trustedSessionProvider)
 +    return
 +  }
