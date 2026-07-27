@@ -13,6 +13,10 @@ ci
 patches
 *.md
 mise.toml
+mise.local.toml
+package.json
+.claude
+.mcp.json
 
 # The submodule's gitlink and any host-side install.
 lib/orca/.git

@@ -1,0 +1,23 @@
+{
+  "name": "orca-server",
+  "description": "Run full Orca capabilities from the browser.",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": "24"
+  },
+  "scripts": {
+    "build": "./ci/build/build-appimage.sh",
+    "doctoc": "./ci/dev/doctoc.sh",
+    "fmt": "npm run prettier && ./ci/dev/doctoc.sh",
+    "lint:scripts": "./ci/dev/lint-scripts.sh",
+    "prettier": "prettier --write --log-level=warn --cache .",
+    "test": "echo 'Run npm run test:scripts, test:unit, test:scope or test:e2e' && exit 1",
+    "test:e2e": "./ci/dev/test-e2e.sh",
+    "test:scope": "./ci/dev/test-scope.sh",
+    "test:scripts": "./ci/dev/test-scripts.sh",
+    "test:unit": "./ci/dev/test-unit.sh",
+    "update": "./ci/build/update-orca.sh"
+  }
+}
