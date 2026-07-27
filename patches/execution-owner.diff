@@ -1223,7 +1223,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        pickFloatingMarkdownDocument: () => Promise.resolve(null),
        // Why: the web tile has no native OS dialog — the picker is the in-app
        // host-fs browser (RemoteFileBrowser), so this native entry stays a no-op.
-@@ -4012,11 +4024,38 @@ async function resolveRuntimeWorktreeByP
+@@ -4016,11 +4028,38 @@ async function resolveRuntimeWorktreeByP
      .filter((entry) => entry.relativePath !== null)
      .sort((a, b) => b.worktree.path.length - a.worktree.path.length)[0]
    if (!match) {

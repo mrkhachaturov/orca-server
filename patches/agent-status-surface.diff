@@ -10,9 +10,9 @@ A desktop host feeds every paired client by hanging its store's
 its own pane key. `orca serve` has no renderer store, so the headless builder
 omitted the field and all three symptoms followed from that one gap. The field
 is resolved from the host's agent-hook rows at `toMobileSessionTabsResult`, the
-single publish boundary every client-visible result passes through - not at any
-of the eleven producers, because `mergeMobileSessionSnapshotTabs` keeps the
-cached tab and would freeze or drop a value stamped at build time.
+single publish boundary every client-visible result passes through - not in any
+of the places a tab is built or re-spread, because `mergeMobileSessionSnapshotTabs`
+keeps the cached tab and would freeze or drop a value stamped at build time.
 
 To test, restart the workspace, open an agent pane in the tile and toggle to
 chat: the prior transcript and the model name should appear with no hook event

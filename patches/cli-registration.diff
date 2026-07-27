@@ -9,8 +9,10 @@ cards open runs on the connected server, where the CLI genuinely exists.
 Three runtime RPC methods - `cli.getInstallStatus`, `cli.install` and
 `cli.remove` - reuse the exact `CliInstaller` behind the desktop IPC handlers,
 with the same shell-path hydration so `pathConfigured` matches what a PTY sees.
-All three mutate the host, so none of them is on `MOBILE_RPC_METHOD_ALLOWLIST`:
-a paired phone must never register or remove host commands.
+`install` and `remove` mutate the host and `getInstallStatus` probes it, so
+none of the three is on `MOBILE_RPC_METHOD_ALLOWLIST`: a paired phone must never
+register or remove host commands, and the status probe rides the same gate
+rather than earning a separate one.
 
 To test, open Settings > CLI in the tile, register the CLI, then run `orca-ide`
 in a terminal on the workspace. Covered by `cli.test.ts` and
@@ -255,7 +257,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import type { SkillDiscoveryResult } from '../../../shared/skills'
  import type { SkillFreshnessInventory } from '../../../shared/skill-freshness'
  import type { SshConnectionState, SshTarget } from '../../../shared/ssh-types'
-@@ -2753,7 +2754,9 @@ function createPreflightApi(): NonNullab
+@@ -2757,7 +2758,9 @@ function createPreflightApi(): NonNullab
  }
  
  function createCliApi(): NonNullable<Partial<PreloadApi>['cli']> {
@@ -266,7 +268,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
      platform: getBrowserPlatform(),
      commandName: getBrowserPlatform() === 'linux' ? 'orca-ide' : 'orca',
      commandPath: null,
-@@ -2765,15 +2768,40 @@ function createCliApi(): NonNullable<Par
+@@ -2769,15 +2772,40 @@ function createCliApi(): NonNullable<Par
      state: 'unsupported',
      currentTarget: null,
      unsupportedReason: 'launch_mode_unavailable',
