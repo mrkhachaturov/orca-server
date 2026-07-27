@@ -256,7 +256,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import { TASK_PROVIDERS } from '../../shared/task-providers'
  import { FIRST_PANE_ID } from '../../shared/pane-key'
  import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../shared/stable-pane-id'
-+// Why: leaf module (types only) — no runtime edge back into the RPC cycle. See 0013.
++// Why: leaf module (types only) — no runtime edge back into the RPC cycle. See usage-analytics.
 +import { agentStatusEntriesByPaneKey } from '../../shared/agent-status-session-surface'
  import { parseAppSshPtyId } from '../../shared/ssh-pty-id'
  import { isValidHostTerminalTabId, isValidTerminalTabId } from '../../shared/terminal-tab-id'
@@ -265,7 +265,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  } from '../git/worktree'
  import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
  import { isENOENT } from '../ipc/filesystem-auth'
-+// Why: leaf module — its only tie back here is `import type`, so no runtime cycle (see 0013).
++// Why: leaf module — its only tie back here is `import type`, so no cycle (see usage-analytics).
 +import { enrichAgentStatusIpcPayload } from '../ipc/agent-status-ipc-boundary'
  import {
    ensureDefaultFloatingWorkspacePath as ensureDefaultFloatingWorkspacePathOnHost,

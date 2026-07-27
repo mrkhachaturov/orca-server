@@ -419,8 +419,8 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowse
 +   * the default — and the browser behaves exactly as the "Add a project" flow needs it to.
 +   *
 +   * Why this exists: the web client has no native OS file dialog, so `Open Markdown Note`
-+   * had nothing to open. This is the same host-fs browser patch 0006 used for Terminal
-+   * Directory, taught the one thing it could not already do.
++   * had nothing to open. This is the same host-fs browser floating-workspace-picker
++   * used for Terminal Directory, taught the one thing it could not already do.
 +   */
 +  selectableFileExtensions?: readonly string[]
  }
@@ -723,7 +723,7 @@ Index: orca-server/lib/orca/src/renderer/src/lib/floating-workspace-runtime-owne
 + * The web client has no local machine to own it. `window.api.pty.spawn` rejects, there is
 + * no `<webview>` to host a browser pane, and there is no native file dialog — every local
 + * affordance the floating workspace reaches for is a stub. So its floating workspace
-+ * belongs to the runtime that served the page, which is what patch 0006 already assumed
++ * belongs to the runtime that served the page, which floating-workspace-picker already assumed
 + * when it moved the floating terminal's cwd resolution onto the host
 + * (`floatingWorkspace.resolveCwd`): the cwd was resolved on the server while the terminal
 + * itself was still being spawned against the client. This is the other half of that.

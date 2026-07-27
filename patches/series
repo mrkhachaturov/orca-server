@@ -1,11 +1,11 @@
-# Apply order for the orca-coder patch series (quilt `series` format).
+# Apply order for the orca-server patch series (quilt `series` format).
 #
 # Order is DATA, not a filename convention — a patch's name says what capability
 # it adds, never where it sits. Reordering is an edit to this file and nothing
 # else; there is no such operation as "renumbering".
 #
-# The Dockerfile applies these top to bottom onto pristine upstream at VERSION.
-# `quilt push -a` applies the same list in the same order.
+# `quilt push -a` applies these top to bottom onto the pinned lib/orca submodule.
+# The Dockerfile consumes the patched tree; it applies nothing itself.
 
 trusted-proxy-session.diff
 pairing-credentials.diff
