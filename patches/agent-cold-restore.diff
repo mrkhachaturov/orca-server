@@ -134,7 +134,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 +  ResumableTuiAgent,
    SleepingAgentLaunchConfig
  } from '../../shared/agent-session-resume'
-+// Why: value imports — agent-session-resume is a dependency-free leaf, so no cycle (see 0013).
++// Why: value imports — agent-session-resume is a dependency-free leaf, so no cycle (usage-analytics).
 +import {
 +  isResumableTuiAgent,
 +  normalizeAgentProviderSession

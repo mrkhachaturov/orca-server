@@ -30,9 +30,9 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
      expect(response).toMatchObject({ ok: true, result: { settings } })
    })
  
-+  // Why: settings.get is on the mobile allowlist, and 0008 widened what it returns to include the
-+  // runtime-seeded rows. Those carry this deployment's editor hostnames and a phone has no "Open
-+  // in" menu to use them — so they stay off the mobile payload, like terminalQuickCommands.
++  // Why: settings.get is on the mobile allowlist, and runtime-seeded-settings widened what it
++  // returns to include those rows. They carry this deployment's editor hostnames and a phone has
++  // no "Open in" menu to use them — so they stay off the mobile payload, like terminalQuickCommands.
 +  it('withholds seeded Open In entries from mobile-scope clients', async () => {
 +    const settings = {
 +      defaultTuiAgent: 'codex',
