@@ -74,6 +74,28 @@ function refresh_patches() {
 
 # Orca declares the node it builds against; the AppImage build must match it,
 # not "latest".
+# Upstream creating a file at a path the overlay owns is the loudest signal a
+# bump can produce: it means upstream shipped something we carry, or picked the
+# same name. Either way it is a finding, not a workspace problem — and git would
+# otherwise report it as "untracked working tree files would be overwritten",
+# which reads like the latter.
+function check_overlay_collisions() {
+  [ -d src ] || return 0
+  local collisions="" f
+  while read -r f; do
+    if git -C lib/orca cat-file -e "HEAD:src/$f" 2> /dev/null; then
+      collisions="$collisions src/$f"
+    fi
+  done < <(cd src && find . -type f | sed 's|^\./||')
+
+  if [ -n "$collisions" ]; then
+    echo "upstream now ships a file at a path the overlay owns:$collisions"
+    echo "decide per file whether ours is still needed before continuing."
+    return 1
+  fi
+  echo "no overlay path collides with $(git -C lib/orca describe --tags --always)"
+}
+
 function update_node() {
   local node_version
   node_version=$(cat .node-version)
@@ -114,6 +136,7 @@ function main() {
     target_orca_version="${VERSION}"
     steps+=(
       "Update Orca to $target_orca_version" "update_orca"
+      "Check overlay paths against upstream" "check_overlay_collisions"
       "Refresh Orca patches" "refresh_patches"
     )
   else
@@ -129,10 +152,14 @@ function main() {
   # Even if a step failed, still output the last checkmark.
   run-steps "${steps[@]}" || true
 
-  # These steps are always manual.
+  # These steps are always manual. A clean restack says only that the patches
+  # still apply — it says nothing about src/, which cannot fail to apply and can
+  # still fail to compile, and nothing about whether any of it is still needed.
   {
     echo "- [ ] Re-justify every patch (keep / shrink / merge / drop)"
-    echo "- [ ] Run ./ci/dev/test-patches.sh"
+    echo "- [ ] Run ./ci/dev/test-scripts.sh — series integrity"
+    echo "- [ ] Run pnpm run typecheck:tsc in lib/orca — the gate for src/"
+    echo "- [ ] Run ./ci/dev/test-unit.sh and ./ci/dev/test-scope.sh"
     echo "- [ ] Verify changelog"
   } >> .cache/checklist
 }
