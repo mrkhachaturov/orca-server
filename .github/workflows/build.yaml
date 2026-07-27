@@ -182,3 +182,19 @@ jobs:
           path: dist/*.AppImage
           if-no-files-found: error
           retention-days: 7
+
+  # The only required check. A matrix job that is skipped reports one check named
+  # with the raw `${{ matrix.platform }}`, never the expanded legs, so requiring
+  # those directly wedges any pull request the filters skip the build on.
+  #
+  # `changes` is in needs on purpose: without it, a failure there skips the rest
+  # and skipped alone would read as green.
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    needs: [changes, title, lint, series, tests, build]
+    if: always()
+    steps:
+      - name: A job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
