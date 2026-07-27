@@ -15,10 +15,23 @@ on change rather than on every session write, and a failed RPC drops the memo so
 the next write retries. `getStoredWorkspaceSession` falls back to the browser's
 sanitized copy when the host pointer is absent.
 
-To test, open a worktree in the tile, restart the workspace, and reload: that
-worktree should be active. Repeat in a browser with cleared storage. Covered by
-`web-preload-api.test.ts`.
+The pointer is built from the keys the caller actually sent. One of the four
+call sites is `session.patch`, which passes a raw `Partial`, so coercing an
+absent key to null would clear the other half - switching worktree would erase
+the repo id, and the restore's `ui.lastActiveRepoId ?? localSession.activeRepoId`
+fallback cannot fall through a stored null, only an absent one. The unchanged
+half is carried forward from the memo, or from browser storage when the memo has
+been dropped.
 
+The browser copy is written before the active-environment check on purpose: it
+is this client's own UI state, and a client that is not currently paired should
+still reopen where it left off.
+
+To test, open a worktree in the tile, restart the workspace, and reload: that
+worktree should be active. Switch worktrees within a repo and reload again - the
+repo must not be lost. Repeat in a browser with cleared storage. Covered by
+`web-preload-api.test.ts` and
+`web-preload-api-active-workspace-pointer.test.ts`.
 Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.test.ts
@@ -162,7 +175,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        }
      },
      onboarding: {
-@@ -3796,12 +3800,58 @@ function getStoredWorkspaceSession(hostI
+@@ -3800,12 +3804,67 @@ function getStoredWorkspaceSession(hostI
    // Why: replaying browser-local terminal handles first creates stale remote PTYs; mirror host session-tabs instead.
    return sanitizeWebRuntimeWorkspaceSession({
      ...getDefaultWorkspaceSession(),
@@ -199,9 +212,18 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 +  if (!('activeRepoId' in session) && !('activeWorktreeId' in session)) {
 +    return
 +  }
++  // Why: `session.patch` carries only the keys that changed, so coercing an absent key to null
++  // would clear the other half of the pointer — switching worktree would erase the repo, and the
++  // restore path reads `ui.lastActiveRepoId ?? localSession.activeRepoId`, so it would find that
++  // null rather than fall through to the browser copy. Carry the unchanged half forward.
++  const known = rememberedActiveWorkspace ?? readLocalWebUIState()
 +  const pointer: WebActiveWorkspacePointer = {
-+    lastActiveRepoId: session.activeRepoId ?? null,
-+    lastActiveWorktreeId: session.activeWorktreeId ?? null
++    lastActiveRepoId:
++      'activeRepoId' in session ? (session.activeRepoId ?? null) : (known.lastActiveRepoId ?? null),
++    lastActiveWorktreeId:
++      'activeWorktreeId' in session
++        ? (session.activeWorktreeId ?? null)
++        : (known.lastActiveWorktreeId ?? null)
 +  }
 +  if (
 +    rememberedActiveWorkspace?.lastActiveRepoId === pointer.lastActiveRepoId &&
@@ -223,3 +245,184 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  function closeWebOnboarding(base: OnboardingState): OnboardingState {
    return {
      ...base,
+Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api-active-workspace-pointer.test.ts
+===================================================================
+--- /dev/null
++++ orca-server/lib/orca/src/renderer/src/web/web-preload-api-active-workspace-pointer.test.ts
+@@ -0,0 +1,176 @@
++/* The pointer the web client restores its workspace from.
++ *
++ * `session.patch` hands rememberWebActiveWorkspace a raw Partial, so the pointer must be built
++ * from the keys the patch actually carries. The restore path reads
++ * `ui.lastActiveRepoId ?? localSession.activeRepoId`, which cannot fall through a stored null. */
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
++
++class MemoryStorage implements Storage {
++  private readonly values = new Map<string, string>()
++
++  get length(): number {
++    return this.values.size
++  }
++
++  clear(): void {
++    this.values.clear()
++  }
++
++  getItem(key: string): string | null {
++    return this.values.get(key) ?? null
++  }
++
++  key(index: number): string | null {
++    return Array.from(this.values.keys())[index] ?? null
++  }
++
++  removeItem(key: string): void {
++    this.values.delete(key)
++  }
++
++  setItem(key: string, value: string): void {
++    this.values.set(key, value)
++  }
++}
++
++function installBrowserGlobals(): {
++  window: Window & typeof globalThis
++  storage: MemoryStorage
++} {
++  const storage = new MemoryStorage()
++  const windowStub = {
++    localStorage: storage,
++    location: { protocol: 'http:', reload: vi.fn() },
++    addEventListener: vi.fn(),
++    removeEventListener: vi.fn(),
++    atob: (value: string) => Buffer.from(value, 'base64').toString('binary'),
++    btoa: (value: string) => Buffer.from(value, 'binary').toString('base64')
++  } as unknown as Window & typeof globalThis
++  vi.stubGlobal('window', windowStub)
++  vi.stubGlobal('navigator', { userAgent: 'Linux', hardwareConcurrency: 8 })
++  return { window: windowStub, storage }
++}
++
++function writeStoredRuntimeEnvironment(storage: Storage, environmentId = 'web-env-1'): void {
++  storage.setItem(
++    'orca.web.runtimeEnvironment.v1',
++    JSON.stringify({
++      id: environmentId,
++      name: 'Test runtime',
++      createdAt: 1,
++      updatedAt: 1,
++      lastUsedAt: null,
++      runtimeId: null,
++      preferredEndpointId: `ws-${environmentId}`,
++      endpoints: [
++        {
++          id: `ws-${environmentId}`,
++          kind: 'websocket',
++          label: 'WebSocket',
++          endpoint: 'ws://127.0.0.1:1234',
++          deviceToken: 'token',
++          publicKeyB64: 'public-key'
++        }
++      ]
++    })
++  )
++}
++
++function mockRuntimeUiSlice(runtimeCalls: { method: string; params: unknown }[]): void {
++  vi.doMock('./web-runtime-client', () => ({
++    WebRuntimeClient: class {
++      call(method: string, params?: unknown): Promise<RuntimeRpcResponse<unknown>> {
++        runtimeCalls.push({ method, params })
++        return Promise.resolve({
++          id: `call-${runtimeCalls.length}`,
++          ok: true,
++          result: { ui: { featureInteractions: {}, contextualToursSeenIds: [] } },
++          _meta: { runtimeId: 'runtime-1' }
++        })
++      }
++
++      close(): void {}
++    }
++  }))
++}
++
++async function waitForCall(
++  calls: { method: string; params: unknown }[],
++  method: string,
++  count: number
++): Promise<void> {
++  for (let attempt = 0; attempt < 200; attempt += 1) {
++    if (calls.filter((call) => call.method === method).length >= count) {
++      return
++    }
++    await new Promise((resolve) => setTimeout(resolve, 5))
++  }
++}
++
++describe('web active-workspace pointer under a partial session patch', () => {
++  beforeEach(() => {
++    vi.resetModules()
++  })
++
++  afterEach(() => {
++    vi.unstubAllGlobals()
++    vi.doUnmock('./web-runtime-client')
++  })
++
++  it('keeps the repo pointer when a patch carries only activeWorktreeId', async () => {
++    const runtimeCalls: { method: string; params: unknown }[] = []
++    mockRuntimeUiSlice(runtimeCalls)
++
++    const globals = installBrowserGlobals()
++    writeStoredRuntimeEnvironment(globals.storage)
++    const { installWebPreloadApi } = await import('./web-preload-api')
++    installWebPreloadApi()
++
++    // 1. A full session write establishes both pointers on the host.
++    await globals.window.api.session.set({
++      activeRepoId: 'repo-1',
++      activeWorktreeId: 'repo-1::/w/feature'
++    } as never)
++    await waitForCall(runtimeCalls, 'ui.set', 1)
++
++    expect(runtimeCalls.filter((call) => call.method === 'ui.set')[0]?.params).toEqual({
++      lastActiveRepoId: 'repo-1',
++      lastActiveWorktreeId: 'repo-1::/w/feature'
++    })
++
++    // 2. A partial patch that only moves the worktree, as switching worktrees does.
++    await globals.window.api.session.patch({
++      activeWorktreeId: 'repo-1::/w/other'
++    } as never)
++    await waitForCall(runtimeCalls, 'ui.set', 2)
++
++    // 3. The repo pointer must survive: the patch said nothing about the repo.
++    const uiSetCalls = runtimeCalls.filter((call) => call.method === 'ui.set')
++    const latest = uiSetCalls[uiSetCalls.length - 1]?.params as {
++      lastActiveRepoId: string | null
++      lastActiveWorktreeId: string | null
++    }
++    expect(latest).toEqual({
++      lastActiveRepoId: 'repo-1',
++      lastActiveWorktreeId: 'repo-1::/w/other'
++    })
++  }, 20_000)
++
++  it('writes the pointer into localStorage before any RPC, with no active environment', async () => {
++    const globals = installBrowserGlobals()
++    // Deliberately no stored runtime environment: requireActiveEnvironmentOrNull() is null.
++    const { installWebPreloadApi } = await import('./web-preload-api')
++    installWebPreloadApi()
++
++    await globals.window.api.session.set({
++      activeRepoId: 'repo-9',
++      activeWorktreeId: 'repo-9::/w/solo'
++    } as never)
++
++    expect(JSON.parse(globals.storage.getItem('orca.web.ui.v1') ?? '{}')).toMatchObject({
++      lastActiveRepoId: 'repo-9',
++      lastActiveWorktreeId: 'repo-9::/w/solo'
++    })
++  }, 20_000)
++})
