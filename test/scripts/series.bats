@@ -1,12 +1,8 @@
 #!/usr/bin/env bats
 
-# Integrity of the patch series itself. These are the checks that used to live
-# only in a human's (or an agent's) head: that the committed patches are exactly
-# what a clean `quilt push -a` produces, that nothing on disk is orphaned, and
-# that every patch says why it exists.
-#
-# They run without touching the submodule's working tree except through quilt,
-# and they restore whatever state they found.
+# Integrity of the patch series itself. The suite pops and pushes the whole
+# series — it restores the state it found, but nothing else may read the tree
+# while it runs.
 
 ROOT="$BATS_TEST_DIRNAME/../.."
 PATCHES="$ROOT/patches"
@@ -40,7 +36,7 @@ series_entries() {
     [ -f "$PATCHES/$p" ] || missing="$missing $p"
   done < <(series_entries)
   [ -z "$missing" ] || {
-    echo "listed in series but not on disk:$missing"
+    echo "listed in patches/series but not on disk (restore the file, or delete the line):$missing"
     false
   }
 }
@@ -53,47 +49,58 @@ series_entries() {
     series_entries | grep -qxF "$base" || orphan="$orphan $base"
   done
   [ -z "$orphan" ] || {
-    echo "on disk but not in series:$orphan"
+    echo "on disk but not in patches/series (add it at its apply position, or delete it):$orphan"
     false
   }
 }
 
 @test "patch names carry no ordinal prefix" {
-  # Order is data in series, never a filename convention. A numbered name means
-  # renumbering has come back.
+  # Order is data in series, never a filename convention.
   local numbered=""
   while read -r p; do
     case "$p" in [0-9]*) numbered="$numbered $p" ;; esac
   done < <(series_entries)
   [ -z "$numbered" ] || {
-    echo "ordinal-prefixed patch names:$numbered"
+    echo "ordinal-prefixed names (order is data in patches/series — rename to the capability):$numbered"
     false
   }
 }
 
-@test "every patch carries a test file" {
-  # Necessary, not sufficient. It catches a patch that ships no test at all;
-  # whether the test fails without the patch, and whether it asserts the intended
-  # behaviour rather than the observed one, stays a review question.
-  local bare=""
+@test "every patch names a test file that exists" {
+  # Tests live in the overlay, so the header naming them in backticks is the only
+  # link left. Necessary, not sufficient: "carries a test file" passed 13/13
+  # while four patches were untested in substance.
+  local bad=""
   while read -r p; do
-    grep -qE '^\+\+\+ .*\.test\.tsx?$' "$PATCHES/$p" || bare="$bare $p"
+    local named f
+    # shellcheck disable=SC2016  # backticks are literal here: the header quotes
+    # test filenames in backticks, and this matches that, not a subshell.
+    named="$(quilt header "$p" 2> /dev/null \
+      | grep -oE '`[A-Za-z0-9._/-]+\.test\.tsx?`' | tr -d '`' | sort -u)"
+    if [ -z "$named" ]; then
+      bad="$bad $p(names-none)"
+      continue
+    fi
+    for f in $named; do
+      find "$ROOT/lib/orca/src" -name "$f" -print -quit 2> /dev/null | grep -q . \
+        || bad="$bad $p:$f(missing)"
+    done
   done < <(series_entries)
-  [ -z "$bare" ] || {
-    echo "ships no test:$bare"
+  [ -z "$bad" ] || {
+    echo "every header must name its covering test in backticks:$bad"
+    echo "  names-none = the header names no test; missing = the named file is not under lib/orca/src"
     false
   }
 }
 
 @test "every patch opens with a rationale header" {
-  # quilt keeps free text above the first Index: line. A patch that cannot say
-  # why it exists cannot be re-justified on the next upstream bump.
+  # quilt keeps free text above the first Index: line.
   local bare=""
   while read -r p; do
     head -1 "$PATCHES/$p" | grep -q '^Index:' && bare="$bare $p"
   done < <(series_entries)
   [ -z "$bare" ] || {
-    echo "no rationale header:$bare"
+    echo "no rationale header (quilt header -e <patch>: symptom, cause, how to check, test name):$bare"
     false
   }
 }
@@ -102,25 +109,30 @@ series_entries() {
   cd "$ROOT"
   quilt pop -a > /dev/null 2>&1 || true
   run quilt push -a
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 0 ] || {
+    echo "$output"
+    echo "restack it: quilt push -f, apply the *.rej hunks by hand, quilt refresh"
+    false
+  }
 }
 
 @test "no patch applies with fuzz" {
-  # Fuzz means the patch no longer matches its base and survived on context
-  # alone. It is the state right before a silent mis-apply.
+  # Fuzz means the patch survived on context alone — one edit from a silent
+  # mis-apply.
   cd "$ROOT"
   quilt pop -a > /dev/null 2>&1 || true
   run quilt push -a
   echo "$output" | grep -qi "with fuzz" && {
     echo "$output" | grep -i "with fuzz"
+    echo "re-anchor it: quilt push to that patch, quilt refresh, and commit the result"
     false
   }
   [ "$status" -eq 0 ]
 }
 
 @test "every patch is refreshed — a rebuild changes nothing" {
-  # The committed patch must be byte-identical to what quilt would write now.
-  # This is the check that makes a hand-edited or stale patch impossible to hide.
+  # The committed patch must be byte-identical to what quilt would write now —
+  # what makes a hand-edited or stale patch impossible to hide.
   cd "$ROOT"
   quilt pop -a > /dev/null 2>&1 || true
   local stale=""
@@ -138,21 +150,22 @@ series_entries() {
   }
 }
 
-@test "every file in the submodule tree is owned by a patch" {
-  # The failure this catches is silent: `quilt add` snapshots what is on disk, so
-  # adding a file that was written first records it as unchanged and `quilt
-  # refresh` captures nothing. The file keeps working locally — it is in the
-  # working tree — while being absent from the series, so a fresh checkout loses
-  # it and test-unit, which derives its list from the series, never runs it.
+@test "every file in the submodule tree is owned by a patch or the overlay" {
+  # Silent failure: `quilt add` snapshots what is on disk, so adding a file that
+  # was written first records it as unchanged and `quilt refresh` captures
+  # nothing. It keeps working locally and a fresh checkout loses it.
   cd "$ROOT"
   quilt pop -a > /dev/null 2>&1 || true
   quilt push -a > /dev/null 2>&1 || true
+  mise run overlay > /dev/null
 
   local owned orphans=""
-  owned="$(grep -h '^+++ orca-server/lib/orca/' "$PATCHES"/*.diff \
-    | sed 's|^+++ orca-server/lib/orca/||' \
-    | sed 's/[[:space:]].*$//' \
-    | sort -u)"
+  owned="$( {
+    grep -h '^+++ orca-server/lib/orca/' "$PATCHES"/*.diff \
+      | sed 's|^+++ orca-server/lib/orca/||' \
+      | sed 's/[[:space:]].*$//'
+    [ -d "$ROOT/src" ] && find src -type f
+  } | sort -u)"
 
   local f
   for f in $(git -C lib/orca ls-files -o --exclude-standard); do

@@ -1,11 +1,5 @@
 name: Update Orca
 
-# Moves the pinned submodule to a new upstream tag, restacks the series onto it,
-# and opens a PR. It never merges: a bump means re-justifying every patch —
-# keep, shrink, merge or drop — and `git apply` succeeding is not that
-# judgement. A patch can apply cleanly and still be redundant, or already
-# shipped upstream.
-
 on:
   workflow_dispatch:
     inputs:
@@ -16,6 +10,8 @@ on:
   schedule:
     - cron: "0 6 * * *"
 
+permissions: {}
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -24,6 +20,9 @@ jobs:
       pull-requests: write
     env:
       TAG: ${{ inputs.version }}
+      # `mise install` arms hk's hooks, whose pre-commit fixers would rewrite
+      # the tree the bump just restacked. Build is this branch's gate instead.
+      HK: 0
 
     steps:
       - name: Fetch latest tag
@@ -31,11 +30,12 @@ jobs:
         run: |
           tag=$(curl -fsSLI -o /dev/null -w "%{url_effective}" https://github.com/stablyai/orca/releases/latest)
           tag="${tag#https://github.com/stablyai/orca/releases/tag/}"
-          echo "TAG=$tag" >> $GITHUB_ENV
+          echo "TAG=$tag" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Check current version
         id: check
@@ -43,13 +43,13 @@ jobs:
           current="$(git -C lib/orca describe --tags --exact-match 2>/dev/null || echo none)"
           if [[ $current == "$TAG" ]] ; then
             echo "already pinned to $TAG"
-            echo done=true >> $GITHUB_OUTPUT
+            echo done=true >> "$GITHUB_OUTPUT"
           elif git ls-remote --exit-code --heads origin "update/$TAG" ; then
             echo "there is already a PR for updating to $TAG"
-            echo done=true >> $GITHUB_OUTPUT
+            echo done=true >> "$GITHUB_OUTPUT"
           else
             echo "$TAG update has not started yet (currently $current)"
-            echo done=false >> $GITHUB_OUTPUT
+            echo done=false >> "$GITHUB_OUTPUT"
           fi
 
       - uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
@@ -63,10 +63,8 @@ jobs:
 
       - name: Restack the series onto ${{ env.TAG }}
         if: steps.check.outputs.done == 'false'
-        run: VERSION="$TAG" ./ci/build/update-orca.sh
+        run: VERSION="$TAG" mise run bump
 
-      # The checklist update-orca.sh writes says which steps landed and which
-      # need a human. It goes in the PR body so the reviewer starts from it.
       - name: Read the checklist
         if: steps.check.outputs.done == 'false'
         id: checklist
@@ -75,18 +73,19 @@ jobs:
             echo 'body<<CHECKLIST_EOF'
             cat .cache/checklist
             echo CHECKLIST_EOF
-          } >> $GITHUB_OUTPUT
+          } >> "$GITHUB_OUTPUT"
 
-      # A pull request opened with GITHUB_TOKEN does not start any workflow, so
-      # the bump would arrive with no CI at all. An installation token from our
-      # own App does start them, and it is minted per run and expires in an
-      # hour, so there is nothing long-lived to leak or rotate.
+      # A PR opened with GITHUB_TOKEN starts no workflow, so the bump would
+      # arrive with no CI. An App installation token does start them.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         if: steps.check.outputs.done == 'false'
         id: app-token
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          # Without these the token inherits every installation permission.
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Open PR
         if: steps.check.outputs.done == 'false'
@@ -97,8 +96,6 @@ jobs:
           title: "chore(orca): update Orca to ${{ env.TAG }}"
           commit-message: "chore(orca): update Orca to ${{ env.TAG }}"
           delete-branch: true
-          # Opens as a draft because the review is the work: every patch has to
-          # be re-justified before this can merge.
           draft: true
           body: |
             Moves `lib/orca` to `${{ env.TAG }}` and restacks the patch series.

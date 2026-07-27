@@ -1,0 +1,8 @@
+# The width the docs are already written at.
+[MD013]
+line_length = 120
+code_blocks = false
+tables = false
+
+[MD041]
+enabled = false # issue templates and CLAUDE.md do not open with an H1

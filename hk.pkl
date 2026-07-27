@@ -1,0 +1,129 @@
+/// The git-lifecycle gate for orca-server. Installs itself from mise's
+/// postinstall (`hk install --mise`). Bypass one command with `HK=0`.
+amends "package://github.com/jdx/hk/releases/download/v1.53.0/hk@1.53.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.53.0/hk@1.53.0#/Builtins.pkl"
+
+/// Trees no fixer may rewrite. Not the config-wide `exclude`, which would also
+/// empty the file list of the steps whose job is to gate patches/.
+local artifacts = List("patches/*.diff", "lib/**")
+
+local hygiene = new Mapping<String, Step> {
+  ["detect-private-key"] = Builtins.detect_private_key
+  ["check-merge-conflict"] = (Builtins.check_merge_conflict) { exclude = artifacts }
+  ["check-added-large-files"] = Builtins.check_added_large_files
+  ["check-case-conflict"] = Builtins.check_case_conflict
+  ["check-symlinks"] = Builtins.check_symlinks
+  ["check-executables-have-shebangs"] = Builtins.check_executables_have_shebangs
+  ["trailing-whitespace"] = (Builtins.trailing_whitespace) { exclude = artifacts }
+  ["end-of-file"] = (Builtins.newlines) { exclude = artifacts }
+  ["mixed-line-ending"] = (Builtins.mixed_line_ending) { exclude = artifacts }
+}
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps {
+      ["no-commit-to-main"] = Builtins.no_commit_to_branch
+      ...hygiene
+
+      // flint is diff-aware, so these see the commit's files; `mise run lint` is
+      // the same set with --full.
+      ["shellcheck"] = new Step {
+        glob = List("**/*.sh", "**/*.bash", "**/*.bats")
+        check = "flint run shellcheck"
+      }
+      ["shfmt"] = new Step {
+        glob = List("**/*.sh", "**/*.bash")
+        fix = "flint run --fix --allow-fixed shfmt"
+      }
+      ["rumdl"] = new Step {
+        glob = List("**/*.md")
+        fix = "flint run --fix --allow-fixed rumdl"
+      }
+      ["ryl"] = new Step {
+        glob = List("**/*.yml", "**/*.yaml")
+        fix = "flint run --fix --allow-fixed ryl"
+      }
+      ["taplo"] = new Step {
+        glob = List("**/*.toml")
+        fix = "flint run --fix --allow-fixed taplo"
+      }
+      ["actionlint"] = new Step {
+        glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml")
+        check = "flint run actionlint"
+      }
+      // Checked, not fixed: a workflow security rewrite is a decision, not
+      // formatting.
+      ["zizmor"] = new Step {
+        glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml")
+        check = "flint run zizmor"
+      }
+      ["hadolint"] = new Step {
+        glob = List("Dockerfile", "*.dockerfile")
+        check = "flint run hadolint"
+      }
+
+      // flint owns [tools]' order and the `# Linters` split; otherwise only CI
+      // catches drift.
+      ["flint-setup"] = new Step {
+        glob = List("mise.toml")
+        fix = "flint run --fix --allow-fixed flint-setup"
+      }
+
+      // The overlay copies last, so a path owned by both a patch and src/ would
+      // silently overwrite the patch's result.
+      ["overlay-owners"] = new Step {
+        glob = List("src/**", "patches/*.diff", "patches/series")
+        check = "mise run overlay --check"
+      }
+    }
+  }
+
+  // Validates the FINAL message, so an agent's `git commit -m` is caught too.
+  ["commit-msg"] {
+    steps {
+      ["conventional-commit"] = Builtins.check_conventional_commit
+    }
+  }
+
+  ["pre-push"] {
+    steps {
+      // Pops and pushes the whole series, so it mutates the tree every other
+      // step reads. It runs alone.
+      ["series"] = new Step {
+        glob = List("patches/**", "lib/orca", "src/**", "test/scripts/*.bats")
+        check = "mise run test:series"
+        exclusive = true
+      }
+      // CI=1 turns lint:docs from a regenerator into a check.
+      ["doctoc"] = new Step {
+        glob = List("docs/*.md")
+        check = "CI=1 mise run lint:docs"
+      }
+    }
+  }
+
+  // `hk check` / `hk fix` — manual and CI entrypoints, no branch guard.
+  ["check"] {
+    steps {
+      ...hygiene
+      // `mise run check` sequences the gates itself, test:series first and alone.
+      ["gates"] = new Step {
+        check = "mise run check"
+        exclusive = true
+      }
+    }
+  }
+
+  ["fix"] {
+    fix = true
+    steps {
+      ...hygiene
+      ["flint"] = new Step {
+        fix = "flint run --fix --allow-fixed"
+        exclusive = true
+      }
+    }
+  }
+}

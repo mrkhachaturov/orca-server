@@ -1,0 +1,17 @@
+# flint selects files with `git ls-files`, so .pc/, dist/, .cache/ and
+# node_modules need no entry here. Only tracked content belongs below.
+
+[settings]
+exclude = [
+  # Upstream is not ours to lint, and a fixer would edit the tree the series
+  # applies to.
+  "lib/**",
+
+  # Byte-exact: quilt re-anchors on context lines, so the trailing whitespace is
+  # data and any fix inside a hunk breaks `quilt push`.
+  "patches/*.diff",
+
+  # Verbatim third-party text; reflowing it forks someone else's document.
+  "ThirdPartyNotices.txt",
+  "docs/CODE_OF_CONDUCT.md",
+]

@@ -1,36 +1,24 @@
 Pick a floating workspace directory from the web client
 
 In the tile, Settings > Floating Workspace > Terminal Directory's folder button
-did nothing - no picker, no error - and no directory could be applied. The
-desktop feature is three host operations the browser had a path for none of: a
-native OS dialog, the trust grant that dialog also performs, and a cwd
-resolution that only returns a custom path once it is trusted. The tile's
-floating terminals run on the workspace host, so all three must happen there.
+did nothing - no picker, no error - and no directory could be applied.
 
-Two runtime methods, `floatingWorkspace.resolveCwd` and `grantDirectory`, reuse
-the existing `ipc/floating-workspace-directory.ts` helpers, and the web client
-opens the existing `RemoteFileBrowser`, then grants and stores what was picked.
-Both authorize or mutate host state, so neither is on
-`MOBILE_RPC_METHOD_ALLOWLIST`.
-
-The grant is a precondition, not a courtesy: a refused directory is not stored
-and the server's own reason is shown. Storing one anyway would resolve to '',
-which the input renders as the configured path, so the pane would display a
-directory the server never authorised while the floating terminal opened
-somewhere else.
-
-Desktop is not left untouched, and the one change is deliberate.
-`getFloatingWorkspaceDirectoryInputValue` returns the configured path when the
-resolve has not answered yet, where upstream returned the empty resolve. Without
-it the field blanks between picking a directory and the round trip returning -
-imperceptible over desktop IPC, a visible flicker over a network hop. Desktop
-sees the same fallback, and only during that window, because a stored path is
-now always one the server accepted.
+The desktop feature is three host operations the browser had a path for none of:
+a native OS dialog, the trust grant that dialog also performs, and a cwd
+resolution that only returns a custom path once it is trusted. Two runtime
+methods, `floatingWorkspace.resolveCwd` and `grantDirectory`, reuse the existing
+`ipc/floating-workspace-directory.ts` helpers; the web client opens the existing
+`RemoteFileBrowser`, then grants and stores what was picked. Both mutate or
+authorize host state, so neither is on `MOBILE_RPC_METHOD_ALLOWLIST`. A refused
+directory is not stored, because an ungranted path resolves to '' and the input
+renders that as the configured path. Desktop changes once, deliberately:
+`getFloatingWorkspaceDirectoryInputValue` returns the configured path while the
+resolve is outstanding, or the field blanks visibly over a network hop.
 
 To test, pick a directory in Settings > Floating Workspace in the tile, confirm
-it is displayed back, then open a floating terminal and check its cwd; then pick
-one the server cannot grant and confirm the field does not change and the
-failure is reported. Covered by `floating-workspace.test.ts`,
+it is displayed back and check a floating terminal's cwd; then pick one the
+server cannot grant and confirm the field does not change and the failure is
+reported. Covered by `floating-workspace.test.ts`,
 `FloatingWorkspacePane.test.tsx`,
 `floating-workspace-directory-grant.test.ts` and
 `mobile-rpc-allowlist.test.ts`.
@@ -192,116 +180,6 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    async browseServerDir(pathValue: string): Promise<{ resolvedPath: string; entries: DirEntry[] }> {
      const dirPath = resolveServerBrowsePath(pathValue)
      const dirStat = await stat(dirPath)
-Index: orca-server/lib/orca/src/main/runtime/rpc/methods/floating-workspace.test.ts
-===================================================================
---- /dev/null
-+++ orca-server/lib/orca/src/main/runtime/rpc/methods/floating-workspace.test.ts
-@@ -0,0 +1,62 @@
-+import { describe, expect, it, vi, beforeEach } from 'vitest'
-+import { RpcDispatcher } from '../dispatcher'
-+import type { RpcRequest } from '../core'
-+import type { OrcaRuntimeService } from '../../orca-runtime'
-+import { FLOATING_WORKSPACE_METHODS } from './floating-workspace'
-+
-+const mocks = vi.hoisted(() => ({
-+  resolveFloatingTerminalCwd: vi.fn(),
-+  grantFloatingWorkspaceDirectory: vi.fn()
-+}))
-+
-+function makeRequest(method: string, params?: unknown): RpcRequest {
-+  return { id: 'req-1', authToken: 'tok', method, params }
-+}
-+
-+// Why: the handlers delegate straight to the runtime service — a bare stub with
-+// the two floating-workspace methods is enough for the dispatcher wiring.
-+const runtime = {
-+  getRuntimeId: () => 'test-runtime',
-+  resolveFloatingTerminalCwd: mocks.resolveFloatingTerminalCwd,
-+  grantFloatingWorkspaceDirectory: mocks.grantFloatingWorkspaceDirectory
-+} as unknown as OrcaRuntimeService
-+
-+describe('floating-workspace RPC methods', () => {
-+  beforeEach(() => {
-+    mocks.resolveFloatingTerminalCwd.mockReset()
-+    mocks.grantFloatingWorkspaceDirectory.mockReset()
-+  })
-+
-+  it('resolves the floating terminal cwd on the server host', async () => {
-+    mocks.resolveFloatingTerminalCwd.mockResolvedValue('/home/coder/.codex')
-+    const dispatcher = new RpcDispatcher({ runtime, methods: FLOATING_WORKSPACE_METHODS })
-+
-+    const response = await dispatcher.dispatch(
-+      makeRequest('floatingWorkspace.resolveCwd', { path: '~/.codex' })
-+    )
-+
-+    expect(mocks.resolveFloatingTerminalCwd).toHaveBeenCalledWith({ path: '~/.codex' })
-+    expect(response).toMatchObject({ ok: true, result: '/home/coder/.codex' })
-+  })
-+
-+  it('grants a picker-approved directory on the server host', async () => {
-+    mocks.grantFloatingWorkspaceDirectory.mockResolvedValue(undefined)
-+    const dispatcher = new RpcDispatcher({ runtime, methods: FLOATING_WORKSPACE_METHODS })
-+
-+    const response = await dispatcher.dispatch(
-+      makeRequest('floatingWorkspace.grantDirectory', { path: '/home/coder/.codex' })
-+    )
-+
-+    expect(mocks.grantFloatingWorkspaceDirectory).toHaveBeenCalledWith('/home/coder/.codex')
-+    expect(response).toMatchObject({ ok: true, result: { ok: true } })
-+  })
-+
-+  it('rejects a grant request without a path', async () => {
-+    const dispatcher = new RpcDispatcher({ runtime, methods: FLOATING_WORKSPACE_METHODS })
-+
-+    const response = await dispatcher.dispatch(makeRequest('floatingWorkspace.grantDirectory', {}))
-+
-+    expect(response).toMatchObject({ ok: false })
-+    expect(mocks.grantFloatingWorkspaceDirectory).not.toHaveBeenCalled()
-+  })
-+})
-Index: orca-server/lib/orca/src/main/runtime/rpc/methods/floating-workspace.ts
-===================================================================
---- /dev/null
-+++ orca-server/lib/orca/src/main/runtime/rpc/methods/floating-workspace.ts
-@@ -0,0 +1,38 @@
-+import { z } from 'zod'
-+import { defineMethod, type RpcMethod } from '../core'
-+
-+// Why: the web client has no native OS file dialog, and its floating terminals
-+// run on THIS server — so the terminal's start directory must be resolved, and
-+// a picker-approved directory trusted/authorized, on the workspace host. These
-+// mirror the desktop `app:getFloatingTerminalCwd` handler and the native
-+// picker's `grantFloatingWorkspaceDirectory` step (src/main/ipc/app.ts).
-+//
-+// Both TOUCH host state — resolveCwd authorizes an external path and may create
-+// the default workspace dir; grantDirectory writes a trust grant into settings —
-+// so, exactly like cli.*, they stay OUT of MOBILE_RPC_METHOD_ALLOWLIST: a paired
-+// phone (mobile scope) must never resolve or trust directories on the host. Only
-+// the full runtime-scope web client (the trusted-proxy tile) reaches them.
-+const ResolveFloatingTerminalCwdParams = z.object({
-+  path: z.string().optional(),
-+  requireTrusted: z.boolean().optional()
-+})
-+
-+const GrantFloatingWorkspaceDirectoryParams = z.object({
-+  path: z.string()
-+})
-+
-+export const FLOATING_WORKSPACE_METHODS: RpcMethod[] = [
-+  defineMethod({
-+    name: 'floatingWorkspace.resolveCwd',
-+    params: ResolveFloatingTerminalCwdParams,
-+    handler: async (params, { runtime }) => runtime.resolveFloatingTerminalCwd(params)
-+  }),
-+  defineMethod({
-+    name: 'floatingWorkspace.grantDirectory',
-+    params: GrantFloatingWorkspaceDirectoryParams,
-+    handler: async (params, { runtime }) => {
-+      await runtime.grantFloatingWorkspaceDirectory(params.path)
-+      return { ok: true }
-+    }
-+  })
-+]
 Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/index.ts
@@ -594,168 +472,3 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        // Browser fallback has no app-owned userData dir; reject so the sentinel can't claim sensitive evidence was persisted.
        writeTerminalRenderDesyncEvidence: () =>
          Promise.reject(
-Index: orca-server/lib/orca/src/renderer/src/components/settings/floating-workspace-directory-grant.test.ts
-===================================================================
---- /dev/null
-+++ orca-server/lib/orca/src/renderer/src/components/settings/floating-workspace-directory-grant.test.ts
-@@ -0,0 +1,160 @@
-+// @vitest-environment happy-dom
-+
-+// Written without JSX so the pane can be driven from a `.ts` file.
-+import '@testing-library/jest-dom/vitest'
-+
-+import { createElement, type ReactNode } from 'react'
-+import { cleanup, render, screen, waitFor } from '@testing-library/react'
-+import userEvent from '@testing-library/user-event'
-+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-+import type { GlobalSettings } from '../../../../shared/types'
-+
-+const mocks = vi.hoisted(() => {
-+  const holder = {
-+    state: {
-+      settingsSearchQuery: '',
-+      recordFeatureInteraction: (_feature: string): void => {}
-+    }
-+  }
-+  const useAppStore = Object.assign(
-+    (selector: (state: typeof holder.state) => unknown) => selector(holder.state),
-+    { getState: () => holder.state }
-+  )
-+  return {
-+    holder,
-+    useAppStore,
-+    recordFeatureInteraction: vi.fn(),
-+    onSelectHolder: { select: null as ((path: string) => void) | null },
-+    toastError: vi.fn()
-+  }
-+})
-+
-+vi.mock('sonner', () => ({ toast: { error: mocks.toastError, success: vi.fn() } }))
-+
-+vi.mock('../../store', () => ({ useAppStore: mocks.useAppStore }))
-+vi.mock('@/store', () => ({ useAppStore: mocks.useAppStore }))
-+vi.mock('@/i18n/i18n', () => ({
-+  translate: (_key: string, fallback: string) => fallback,
-+  i18n: { language: 'en' }
-+}))
-+vi.mock('../../i18n/i18n', () => ({
-+  translate: (_key: string, fallback: string) => fallback,
-+  i18n: { language: 'en' }
-+}))
-+vi.mock('@/lib/web-client-location', () => ({ isWebClientLocation: () => true }))
-+
-+// Keep the dialog shell out of the way; the audit targets the grant wiring only.
-+vi.mock('../ui/dialog', () => ({
-+  Dialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
-+    open ? createElement('div', null, children) : null,
-+  DialogContent: ({ children }: { children: ReactNode }) => createElement('div', null, children),
-+  DialogHeader: ({ children }: { children: ReactNode }) => createElement('div', null, children),
-+  DialogTitle: ({ children }: { children: ReactNode }) => createElement('div', null, children),
-+  DialogDescription: ({ children }: { children: ReactNode }) => createElement('div', null, children)
-+}))
-+
-+// Stand in for the host-fs browser: one button that reports a chosen directory.
-+vi.mock('../sidebar/RemoteFileBrowser', () => ({
-+  RemoteFileBrowser: (props: { onSelect: (path: string) => void }) => {
-+    mocks.onSelectHolder.select = props.onSelect
-+    return createElement(
-+      'button',
-+      { type: 'button', 'data-testid': 'confirm-pick', onClick: () => props.onSelect(PICKED_PATH) },
-+      'Select'
-+    )
-+  }
-+}))
-+
-+const PICKED_PATH = '/srv/workspaces/picked'
-+
-+const { FloatingWorkspacePane } = await import('./FloatingWorkspacePane')
-+
-+function makeSettings(): GlobalSettings {
-+  return {
-+    floatingTerminalEnabled: true,
-+    floatingTerminalCwd: '~',
-+    floatingTerminalTriggerLocation: 'floating-button',
-+    activeRuntimeEnvironmentId: 'web-env-1'
-+  } as unknown as GlobalSettings
-+}
-+
-+describe('floating workspace directory grant failure', () => {
-+  let grantFloatingWorkspaceDirectory: ReturnType<typeof vi.fn>
-+  let updateSettings: ReturnType<typeof vi.fn>
-+
-+  beforeEach(() => {
-+    mocks.recordFeatureInteraction.mockReset()
-+    mocks.toastError.mockReset()
-+    mocks.holder.state.settingsSearchQuery = ''
-+    mocks.holder.state.recordFeatureInteraction = mocks.recordFeatureInteraction
-+    mocks.onSelectHolder.select = null
-+    grantFloatingWorkspaceDirectory = vi.fn()
-+    updateSettings = vi.fn()
-+    ;(window as unknown as { api: unknown }).api = {
-+      app: {
-+        getFloatingTerminalCwd: vi.fn().mockResolvedValue(''),
-+        pickFloatingWorkspaceDirectory: vi.fn().mockResolvedValue(null),
-+        grantFloatingWorkspaceDirectory
-+      }
-+    }
-+  })
-+
-+  afterEach(() => {
-+    cleanup()
-+  })
-+
-+  async function pickDirectory(): Promise<void> {
-+    const user = userEvent.setup()
-+    render(
-+      createElement(FloatingWorkspacePane, {
-+        settings: makeSettings(),
-+        updateSettings: updateSettings as unknown as (updates: Partial<GlobalSettings>) => void
-+      })
-+    )
-+    await user.click(screen.getByLabelText('Choose floating workspace directory'))
-+    await user.click(await screen.findByTestId('confirm-pick'))
-+    await waitFor(() => {
-+      expect(grantFloatingWorkspaceDirectory).toHaveBeenCalledWith(PICKED_PATH)
-+    })
-+  }
-+
-+  it('stores the picked directory when the server grant succeeds', async () => {
-+    grantFloatingWorkspaceDirectory.mockResolvedValue(undefined)
-+
-+    await pickDirectory()
-+
-+    await waitFor(() => {
-+      expect(updateSettings).toHaveBeenCalledWith({ floatingTerminalCwd: PICKED_PATH })
-+    })
-+  }, 15_000)
-+
-+  it('does not store a directory the server refused to authorise', async () => {
-+    grantFloatingWorkspaceDirectory.mockRejectedValue(
-+      new Error('floatingWorkspace.grantDirectory: EACCES')
-+    )
-+
-+    await pickDirectory()
-+
-+    // Why: a stored path the server refused resolves to '', which the input then renders
-+    // as the configured directory — so the pane would show a directory that was never
-+    // authorised while the floating terminal opened somewhere else.
-+    await waitFor(() => {
-+      expect(grantFloatingWorkspaceDirectory).toHaveBeenCalledTimes(1)
-+    })
-+    expect(updateSettings).not.toHaveBeenCalled()
-+  }, 15_000)
-+
-+  it('tells the user why the directory was refused', async () => {
-+    // Why: dropping the pick silently is indistinguishable from a misclick. The server's
-+    // own reason is the only thing that says whether to pick elsewhere or fix a permission.
-+    grantFloatingWorkspaceDirectory.mockRejectedValue(
-+      new Error('floatingWorkspace.grantDirectory: EACCES')
-+    )
-+
-+    await pickDirectory()
-+
-+    await waitFor(() => {
-+      expect(mocks.toastError).toHaveBeenCalledWith('floatingWorkspace.grantDirectory: EACCES')
-+    })
-+  }, 15_000)
-+})

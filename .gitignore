@@ -2,14 +2,19 @@
 .DS_Store
 node_modules
 
-# AppImage build export dir (buildx --output type=local)
+/.rumdl_cache
 /dist
 
 # Quilt's internal data.
 /.pc
 /patches/*.diff~
 
-# Local-only agent tooling: machine-specific paths, never the repo's contract.
+# Local-only agent tooling; the rest of .claude/ ships.
 /mise.local.toml
+/mise.local.lock
 /.mcp.json
-/.claude
+/CLAUDE.local.md
+/.claude/settings.local.json
+/.claude/findings.md
+/.claude/skills/orca-graph/
+/.claude/skills/orca-wiki/

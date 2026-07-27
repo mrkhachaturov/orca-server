@@ -10,8 +10,7 @@ labels: enhancement
 
 ## Does the desktop Orca app already do this?
 
-<!-- If it does, this is a gap in Orca's browser client and the fix is probably a patch here.
-     If it does not, the feature belongs upstream: https://github.com/stablyai/orca/issues -->
+<!-- Yes: a browser-client gap, patched here. No: belongs upstream, https://github.com/stablyai/orca/issues -->
 
 ## Are there any workarounds to get this functionality today?
 

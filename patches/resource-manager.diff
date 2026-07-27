@@ -1,27 +1,23 @@
 Show the workspace's own processes in the web Resource Manager
 
 Resource Manager showed all zeros in the tile: the web preload's
-`memory.getSnapshot` was an empty-snapshot stub. It now routes to the runtime's
-`diagnostics.memory` method, which paired phones already poll, so the tile
-reports the workspace host's processes and its RAM and CPU.
+`memory.getSnapshot` was an empty-snapshot stub.
 
+It now routes to the runtime's `diagnostics.memory` method, which paired phones
+already poll, so the tile reports the workspace host's processes, RAM and CPU.
 The empty snapshot is the answer for one condition only - no environment
-connected - and that condition is tested for rather than inferred from a failed
-call, the way every sibling stub in this file gates on
-`requireActiveEnvironmentOrNull()`. A connected runtime that cannot answer must
-reject: the store sets `memorySnapshotError` from a rejection alone, and
-`ResourceUsageStatusSegment` derives `daemonUnreachable` from it, so swallowing
-the failure into an empty snapshot makes the "daemon not responding / Restart"
-banner unreachable in the tile and renders a revoked device as an idle host.
+connected - tested for via `requireActiveEnvironmentOrNull()` the way every
+sibling stub in this file does, rather than inferred from a failed call. A
+connected runtime that cannot answer must reject: the store sets
+`memorySnapshotError` from a rejection alone and `ResourceUsageStatusSegment`
+derives `daemonUnreachable` from it, so swallowing the failure would make the
+"daemon not responding / Restart" banner unreachable in the tile.
 
 To test, open Resource Manager in the tile and confirm it lists the workspace's
 processes rather than zeros; then revoke the device and confirm the pane says
-the daemon is not responding instead of showing an idle host. Covered by
-`web-preload-api.test.ts`, which separates the two failure shapes - a transport
-rejection and an `ok:false` envelope - from the unpaired case. The unpaired case
-is a regression guard rather than a proof of this patch: it holds with or
-without the routing, and its job is to keep the fix from becoming an
-unconditional throw.
+the daemon is not responding. Covered by `web-preload-api.test.ts`, which
+separates the two failure shapes - a transport rejection and an `ok:false`
+envelope - from the unpaired case.
 Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.test.ts

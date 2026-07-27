@@ -8,3 +8,9 @@ indent_size = 2
 [*.diff]
 trim_trailing_whitespace = false
 insert_final_newline = false
+
+# shfmt reads .editorconfig; these three are its style, not an editor's.
+[*.sh]
+switch_case_indent = true
+space_redirects = true
+binary_next_line = true

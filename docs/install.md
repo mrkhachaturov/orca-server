@@ -15,37 +15,41 @@
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 <!-- prettier-ignore-end -->
 
-There is one artifact: a Linux x86_64 AppImage published on
+Two artifacts, one per architecture — `x86_64` and `aarch64` — on
 [Releases](https://github.com/mrkhachaturov/orca-server/releases). No package repositories, no install script.
 
 ## Requirements
 
-Linux x86_64 with glibc 2.36 or newer. The build is done on Debian bookworm, so anything at or above that works;
-Ubuntu 22.04 and 24.04 and current Debian stable are known to.
+Linux on `x86_64` or `aarch64`, glibc 2.31 or newer — stock Ubuntu 20.04+, Debian 11+, RHEL 9. The architecture in the
+asset name is `uname -m`.
 
-`orca serve` is an Electron process. It never opens a window, but Chromium still refuses to start without its
-libraries and a display, so both have to be there:
+`orca serve` is an Electron process. It never opens a window, but Chromium still needs its libraries and a display:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-  libgtk-3-0 libnss3 libgbm1 libasound2 libatk-bridge2.0-0 libatspi2.0-0 \
+  libgtk-3-0 libnss3 libgbm1 libatk-bridge2.0-0 libatspi2.0-0 \
   libdrm2 libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 libxss1 \
   xvfb xauth dbus-x11
+
+# Renamed in Ubuntu 24.04 and Debian 13. Naming the wrong one aborts the whole
+# install, because the other is a virtual package with no candidate.
+sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
 ```
 
-FUSE is not required. The instructions below extract the AppImage instead of mounting it, which is also what makes it
-work inside a container or an unprivileged LXC.
+FUSE is not required: the steps below extract the AppImage rather than mount it, which is also what makes it work
+inside a container or an unprivileged LXC.
 
 ## Download and extract
 
 ```bash
 VERSION=4.156.0
+ARCH=$(uname -m)
 sudo mkdir -p /opt/orca-server
 cd /opt/orca-server
-sudo curl -fL -O "https://github.com/mrkhachaturov/orca-server/releases/download/v$VERSION/orca-server-$VERSION-x86_64.AppImage"
-sudo chmod +x "orca-server-$VERSION-x86_64.AppImage"
-sudo ./orca-server-$VERSION-x86_64.AppImage --appimage-extract
+sudo curl -fL -O "https://github.com/mrkhachaturov/orca-server/releases/download/v$VERSION/orca-server-$VERSION-$ARCH.AppImage"
+sudo chmod +x "orca-server-$VERSION-$ARCH.AppImage"
+sudo ./orca-server-$VERSION-$ARCH.AppImage --appimage-extract
 ```
 
 Extraction leaves a `squashfs-root` directory. Everything below runs out of it.
@@ -58,24 +62,21 @@ LIBGL_ALWAYS_SOFTWARE=1 ORCA_APPIMAGE_NO_SANDBOX=1 \
   /opt/orca-server/squashfs-root/resources/bin/orca-ide serve --trusted-proxy --port 6799
 ```
 
-Then put a reverse proxy that authenticates your users in front of `127.0.0.1:6799`. The proxy must pass WebSocket
-upgrades. Open the proxied URL and the UI loads with nothing to paste.
+Put a reverse proxy that authenticates your users in front of `127.0.0.1:6799`. The proxy must pass WebSocket upgrades.
 
-Health is `GET /web-index.html`. Do not health-check `/trusted-session`, which answers 503 until the first pairing
-offer is minted, and do not health-check the WebSocket port.
+Health is `GET /web-index.html`. Do not health-check `/trusted-session`, which answers 503 until the first pairing offer
+is minted, and do not health-check the WebSocket port.
 
 ### Three things that fail quietly
 
 The entry point is `resources/bin/orca-ide`. `squashfs-root/AppRun` is the desktop entry point: it ignores the `serve`
-argument, boots the GUI under Xvfb with a stock server on port 6768, and exits zero. Nothing in the log says you got the
-wrong thing.
+argument, boots the GUI under Xvfb with a stock server on port 6768, and exits zero.
 
-`ORCA_APPIMAGE_NO_SANDBOX` is an environment variable. Passing `--no-sandbox` as a flag makes the CLI reject the
-launch, because it is not in the allowed flag list for `serve`.
+`ORCA_APPIMAGE_NO_SANDBOX` is an environment variable. `--no-sandbox` is not in the allowed flag list for `serve` and
+the CLI rejects the launch.
 
 `dbus-run-session -- xvfb-run -a` is required. Without a display the process dies with "Missing X server or $DISPLAY".
-Upstream's own documentation says modern builds start Xvfb on their own and that D-Bus is unnecessary; that is not what
-happens here, and both wrappers have been verified as needed.
+Upstream documentation claims modern builds start Xvfb themselves and need no D-Bus; both wrappers are needed here.
 
 ## Run it under systemd
 
@@ -114,15 +115,14 @@ sudo journalctl -u orca-server.service -f
 
 ## Pairing a phone
 
-Mobile pairing needs an address the phone can dial, and the server will not invent one. Add `--pairing-address` with a
-LAN or Tailscale hostname the phone can actually reach:
+Mobile pairing needs `--pairing-address` with a LAN or Tailscale hostname the phone can reach:
 
 ```bash
 ... orca-ide serve --trusted-proxy --port 6799 --pairing-address orca.tailnet-name.ts.net
 ```
 
-Without it, generating a code fails with "no advertised pairing address". The browser does not need this, because it
-derives the endpoint from the page it was served from.
+Without it, generating a code fails with "no advertised pairing address". The browser does not need it — it derives the
+endpoint from the page it was served from.
 
 ## Uninstall
 
@@ -131,10 +131,8 @@ sudo rm -rf /opt/orca-server
 rm -rf ~/.config/orca ~/.config/Orca
 ```
 
-The second line deletes projects, worktree metadata, terminal history, orchestration state, and paired device keys.
-
-Note that the data directory is Orca's own, not renamed. A stock Orca installed on the same machine for the same user
-shares it.
+The second line deletes projects, worktree metadata, terminal history, orchestration state, and paired device keys. The
+data directory is Orca's own, not renamed: a stock Orca installed for the same user on the same machine shares it.
 
 ## Upgrading
 
