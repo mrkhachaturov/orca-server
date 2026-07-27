@@ -31,6 +31,8 @@ Orca v9.99.999
 
 ## Unreleased
 
+## [4.156.0] - 2026-07-27
+
 Orca v1.4.156
 
 First release. Orca packaged as a self-hosted Linux AppImage, patched so a
