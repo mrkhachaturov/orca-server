@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+#MISE description="Copy our own source into the patched Orca tree"
+#MISE dir="{{config_root}}"
 
 # Copy our own source into a patched Orca tree.
 #
@@ -10,10 +12,10 @@
 # path the overlay owns. The layout mirrors the target: src/<path> lands at
 # <root>/src/<path>.
 #
-#   overlay.sh                copy into lib/orca
-#   overlay.sh --check        assert the two owners are disjoint, copy nothing
-#   overlay.sh --clean        remove what a previous copy put there
-#   overlay.sh --into <root>  copy into another tree, e.g. a probe worktree
+#   mise run overlay                copy into lib/orca
+#   mise run overlay --check        assert the two owners are disjoint, copy nothing
+#   mise run overlay --clean        remove what a previous copy put there
+#   mise run overlay --into <root>  copy into another tree, e.g. a probe worktree
 #
 # `--clean` exists because `quilt pop -a` does NOT undo a copy: the files are
 # untracked in the submodule and survive a pop. Two things need it — returning
@@ -47,6 +49,8 @@ function check_disjoint() {
   both=$(comm -12 <(overlay_files) <(patched_files))
   if [ -n "$both" ]; then
     echo "error: these paths are owned by BOTH a patch and the overlay:" >&2
+    # shellcheck disable=SC2001  # indenting every line of a multi-line value is
+    # not a substring replacement; ${var//} cannot express it.
     echo "$both" | sed 's/^/  /' >&2
     echo "move the change into the overlay file, or delete the overlay copy." >&2
     return 1
@@ -90,7 +94,6 @@ function clean_out() {
 }
 
 function main() {
-  cd "$(dirname "${0}")/../.."
 
   case ${1-} in
     --check)
@@ -102,7 +105,7 @@ function main() {
       ;;
     --into)
       [ -n "${2-}" ] || {
-        echo "usage: overlay.sh --into <root>" >&2
+        echo "usage: mise run overlay --into <root>" >&2
         return 1
       }
       [ -d "$2" ] || {
@@ -118,7 +121,7 @@ function main() {
       echo "overlay: copied $(overlay_files | wc -l | tr -d ' ') files into $TARGET/$OVERLAY_ROOT"
       ;;
     *)
-      echo "usage: overlay.sh [--check | --clean | --into <root>]" >&2
+      echo "usage: mise run overlay [--check | --clean | --into <root>]" >&2
       return 1
       ;;
   esac

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
+#MISE description="Every test beside a directory either owner touches"
+#MISE dir="{{config_root}}"
+#MISE depends=["up"]
 set -euo pipefail
 
 # Run the tests that sit beside the files the series touches, not only the tests
 # it ships. A patch breaks tests it never names: one import at module scope took
 # out 411 tests while the series' own tests stayed green.
 main() {
-  cd "$(dirname "$0")/../.."
 
   source ./ci/lib.sh
 
@@ -16,9 +18,6 @@ main() {
     echo >&2 "only $applied of $expected patches are applied — run: quilt push -a"
     exit 1
   fi
-
-  # The overlay has to be in the tree before its neighbours can be found.
-  ./ci/build/overlay.sh > /dev/null
 
   # Both owners count. A patch modifies an upstream file; the overlay adds one of
   # ours. Either way the tests beside it are in scope, and a directory that holds

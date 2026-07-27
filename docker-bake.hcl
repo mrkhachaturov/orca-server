@@ -5,10 +5,9 @@
 # registry or push logic here.
 #
 # VERSION and PNPM_VERSION are NOT pinned in this file. They are read off the
-# pinned submodule by ci/build/build-appimage.sh, which is the only supported
-# entry point:
+# pinned submodule by the build task, which is the only supported entry point:
 #
-#   ./ci/build/build-appimage.sh        -> ./dist/orca-server-<tag>-x86_64.AppImage
+#   mise run build        -> ./dist/orca-server-<tag>-x86_64.AppImage
 #
 # Keeping them out of here is the point: the submodule commit is the single
 # source of truth for which Orca this is. A version literal in this file would

@@ -63,9 +63,9 @@ jobs:
 
       - name: Restack the series onto ${{ env.TAG }}
         if: steps.check.outputs.done == 'false'
-        run: VERSION="$TAG" ./ci/build/update-orca.sh
+        run: VERSION="$TAG" mise run bump
 
-      # The checklist update-orca.sh writes says which steps landed and which
+      # The checklist the bump task writes says which steps landed and which
       # need a human. It goes in the PR body so the reviewer starts from it.
       - name: Read the checklist
         if: steps.check.outputs.done == 'false'

@@ -13,8 +13,30 @@ jq = "1.8.2"         # reads the pinned Orca version out of lib/orca/package.jso
 bats = "1.14.0"      # test/scripts — series integrity
 "npm:prettier" = "3.9.6" # formats markdown, yaml and json
 "npm:doctoc" = "2.5.0"   # generates the tables of contents in docs/
-shellcheck = "0.11.0" # ci/dev/lint-scripts.sh
+shellcheck = "0.11.0" # the lint:shell task
 ruff = "0.16.0"      # lints the agent tooling under .claude/skills/
 
 [hooks]
 enter = ["mise install"]
+
+# --- Aggregates -------------------------------------------------------------
+# Leaf tasks are scripts under .mise/tasks/, auto-discovered — a subdirectory
+# namespaces them with a colon. Only the DAGs live here, so adding a task means
+# adding a file, not editing this document.
+
+[tasks."check:gates"]
+description = "The gates that only read the tree — safe in parallel"
+depends = ["test:types", "test:unit", "test:scope", "lint:shell"]
+
+[tasks.check]
+description = "Everything that gates a push"
+# test:series pops and pushes the whole series as part of what it checks, so it
+# mutates the tree the other gates are reading. Run it alone, reassemble, then
+# parallelise the rest. Running it inside the parallel group leaves the series
+# half-applied and the other gates fail against a tree that was never broken.
+run = ["mise run test:series", "mise run up", "mise run check:gates"]
+
+[tasks.ci]
+description = "The full local pipeline: gates, then the AppImage"
+depends = ["check"]
+run = "mise run build"

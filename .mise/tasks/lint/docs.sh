@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+#MISE description="Regenerate the tables of contents in docs/"
+#MISE dir="{{config_root}}"
 set -euo pipefail
 
 main() {
-  cd "$(dirname "$0")/../.."
 
   doctoc --title '# Contributing' docs/CONTRIBUTING.md > /dev/null
   doctoc --title '# Maintaining' docs/MAINTAINING.md > /dev/null
@@ -16,7 +17,7 @@ main() {
     echo "Files need generation or are formatted incorrectly:"
     git -c color.ui=always status -- docs | grep --color=no '\[31m'
     echo "Please run the following locally:"
-    echo "  ./ci/dev/doctoc.sh"
+    echo "  mise run lint:docs"
     exit 1
   fi
 }

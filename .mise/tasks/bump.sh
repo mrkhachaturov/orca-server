@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
+#MISE description="Move the pinned Orca submodule to a new tag and restack the series"
+#MISE dir="{{config_root}}"
 
 # Move the pinned Orca submodule to a new upstream tag and restack the patch
 # series onto it. Modelled on code-server's ci/build/update-vscode.sh.
 #
-#   VERSION=v1.4.157 ./ci/build/update-orca.sh
+#   VERSION=v1.4.157 mise run bump
 #
 # With no VERSION, assumes the submodule is already at the target and you are
 # re-running to resolve conflicts.
@@ -12,7 +14,7 @@
 #   quilt push -f          # force-apply, rejects land in *.rej
 #   ...fix the rejected hunks by hand...
 #   quilt refresh          # rewrite the patch against the new base
-#   ./ci/build/update-orca.sh   # re-run to continue the series
+#   mise run bump   # re-run to continue the series
 #
 # Applying is NOT acceptance. A patch that applies can still be redundant or
 # already shipped upstream; every bump re-justifies each patch in CHANGELOG.md.
@@ -120,7 +122,6 @@ function add_changelog() {
 }
 
 function main() {
-  cd "$(dirname "${0}")/../.."
 
   source ./ci/lib.sh
 
@@ -157,9 +158,9 @@ function main() {
   # still fail to compile, and nothing about whether any of it is still needed.
   {
     echo "- [ ] Re-justify every patch (keep / shrink / merge / drop)"
-    echo "- [ ] Run ./ci/dev/test-scripts.sh — series integrity"
+    echo "- [ ] Run mise run test:series — series integrity"
     echo "- [ ] Run pnpm run typecheck:tsc in lib/orca — the gate for src/"
-    echo "- [ ] Run ./ci/dev/test-unit.sh and ./ci/dev/test-scope.sh"
+    echo "- [ ] Run mise run test:unit and mise run test:scope"
     echo "- [ ] Verify changelog"
   } >> .cache/checklist
 }

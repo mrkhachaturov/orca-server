@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
+#MISE description="Build the AppImage from the assembled tree"
+#MISE dir="{{config_root}}"
 
 # Build the AppImage from the pinned submodule with the series applied.
 #
-#   ./ci/build/build-appimage.sh        -> ./dist/orca-server-<tag>-x86_64.AppImage
+#   mise run build        -> ./dist/orca-server-<tag>-x86_64.AppImage
 #
 # Every version number the build needs is read off lib/orca, never from a
 # literal in this repo: the submodule commit is the single pin.
@@ -10,7 +12,6 @@
 set -Eeuo pipefail
 
 main() {
-  cd "$(dirname "${0}")/../.."
 
   source ./ci/lib.sh
 
@@ -37,7 +38,7 @@ main() {
   # Our own source is not in the series — patches modify upstream files, the
   # overlay adds ours. The Dockerfile copies lib/orca wholesale, so this has to
   # run before it or the image builds without a third of our code.
-  ./ci/build/overlay.sh
+  mise run overlay
 
   local applied
   applied="$(quilt applied 2> /dev/null | wc -l | tr -d ' ')"

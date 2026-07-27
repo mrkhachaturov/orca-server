@@ -24,9 +24,9 @@ the file had been written in place, and runtime is unchanged — the code still 
 process. Only where a file is stored between builds differs.
 
 No path may have both owners. Build and test order is always `quilt push -a` →
-`./ci/build/overlay.sh` → build or test; `build-appimage.sh`, `test-unit.sh` and `test-scope.sh`
-each run the overlay themselves. `./ci/build/overlay.sh --check` asserts the separation without
-copying, and names any path that has both owners.
+`mise run overlay` → build or test, which is what `mise run up` does; `build`, `test:unit` and
+`test:scope` each run the overlay themselves. `mise run overlay --check` asserts the separation
+without copying, and names any path that has both owners.
 
 ## The quilt loop — modifying a file that exists upstream
 
@@ -64,13 +64,13 @@ grep -c '^+++ orca-server/lib/orca/<file>$' patches/<patch>.diff   # must be 1
 ## A file that does not exist upstream — the overlay
 
 Write it at `src/<path>`, mirroring where it must land under `lib/orca/src/`. No quilt command
-touches it; `quilt add` on an overlay path puts that path under two owners and `overlay.sh` fails.
-Edit the file in `src/` — the copy under `lib/orca/src/` is output, and the next overlay run
+touches it; `quilt add` on an overlay path puts that path under two owners and `mise run overlay`
+fails. Edit the file in `src/` — the copy under `lib/orca/src/` is output, and the next overlay run
 overwrites it.
 
 ```bash
-./ci/build/overlay.sh --check          # disjoint, and the count includes the new file
-./ci/dev/test-unit.sh | grep Running   # a new *.test.ts raises the file count
+mise run overlay --check           # disjoint, and the count includes the new file
+mise run test:unit | grep Running  # a new *.test.ts raises the file count
 ```
 
 `series.bats` check 10 enforces the general case: every file in the submodule tree must be owned by

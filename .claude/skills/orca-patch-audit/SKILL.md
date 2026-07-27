@@ -23,7 +23,7 @@ Diagnose first: placement is answered with the symbol list in hand.
 
 **Which owner, before which patch.** A file that already exists upstream is modified by a patch. A
 file that does not is ours and lives in the `src/` overlay, checked in plain and never in a patch.
-No path may be in both; `./ci/build/overlay.sh --check` fails if one is.
+No path may be in both; `mise run overlay --check` fails if one is.
 
 ```bash
 git -C lib/orca ls-files --error-unmatch src/<path>   # exit 0: upstream's, so a patch. exit 1: ours, so the overlay
@@ -58,11 +58,11 @@ Patch size never decides. Size is what restacking costs.
 
 | Question | Command |
 |---|---|
-| Is any patch stale, fuzzy, or unlisted? | `./ci/dev/test-scripts.sh` — 10 checks, including that every file in the tree has an owner |
+| Is any patch stale, fuzzy, or unlisted? | `mise run test:series` — 10 checks, including that every file in the tree has an owner |
 | Which patches are coupled, and through what? | `quilt graph --all --edge-labels=files` |
 | How much does a patch modify? | `quilt files <patch>.diff \| wc -l` |
 | Which files did we add rather than modify? | `find src -type f` — that is the whole answer |
-| Who owns this file? | `./ci/dev/owner.sh <path>` |
+| Who owns this file? | `mise run owner <path>` |
 | Which symbols are ours inside an upstream file? | `quilt annotate lib/orca/<path>` — owner per line, legend at the end |
 | Does upstream already have a mechanism we reimplement? | `git -C lib/orca grep -n '<words>' <pinned tag>` |
 
@@ -93,7 +93,7 @@ for p in $(grep -v '^[[:space:]]*\(#\|$\)' patches/series); do
 done
 ```
 
-A patch naming no test cannot be dropped, shrunk or merged — give it one first. `test-scripts.sh`
+A patch naming no test cannot be dropped, shrunk or merged — give it one first. `test:series`
 check 5 already fails on a patch that names none, and on a named file that does not exist; whether
 that test fails without the patch stays a review question.
 
@@ -115,7 +115,7 @@ Apply in order; the first match wins.
    remove its line from `patches/series`, and record the probe in `CHANGELOG.md`.
    ```bash
    git -C lib/orca worktree add --detach .cache/probe <newtag>
-   ./ci/build/overlay.sh --into .cache/probe
+   mise run overlay --into .cache/probe
    ```
 2. **Shrink** — the probe fails, but the new tag has a mechanism this patch reimplements. Look for
    one in `.cache/probe` before assuming there is none: `git -C lib/orca diff <oldtag>..<newtag>
@@ -124,10 +124,10 @@ Apply in order; the first match wins.
    after each; anything removable with the test green was dead weight.
 3. **Merge** — two patches share symbols in one capability and neither test passes without the
    other. Two patches whose tests each pass alone are two capabilities sharing a file.
-4. **Keep** — `quilt push` it and `quilt refresh` if `./ci/dev/test-scripts.sh` flagged it.
+4. **Keep** — `quilt push` it and `quilt refresh` if `mise run test:series` flagged it.
 
-`./ci/build/update-orca.sh` restacks the series onto a new tag and stops at the first patch that
-will not apply. It decides nothing: every verdict above is still yours to make.
+`mise run bump` restacks the series onto a new tag and stops at the first patch that will not apply.
+It decides nothing: every verdict above is still yours to make.
 
 ## Evidence status
 

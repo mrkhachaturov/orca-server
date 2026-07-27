@@ -37,17 +37,16 @@ git clone https://github.com/mrkhachaturov/orca-server.git
 cd orca-server
 git submodule update --init   # fetches Orca at the pinned tag into lib/orca
 mise install
-quilt push -a                 # applies the series to lib/orca
-./ci/build/overlay.sh         # copies our own files in on top
+mise run up                   # applies the series to lib/orca, then copies our own files in on top
 ```
 
 `lib/orca` is now a working Orca tree with our changes on it. It will show as dirty in `git status` and that is expected:
 the changes live in `patches/` and `src/`, never in a commit inside the submodule.
 
-To get back to pristine upstream, run `quilt pop -a && ./ci/build/overlay.sh --clean`. Both halves are needed: the
-overlay's copies are untracked files in the submodule, so popping the series leaves them behind. `--clean` removes only
-the files the overlay owns, and refuses to delete one that upstream has started tracking, so it will not take anything
-of yours or theirs with it. That is also how you compare behaviour against stock Orca, and it is faster and more honest
+To get back to pristine upstream, run `mise run down`, which pops the series and then runs `mise run overlay --clean`.
+Both halves are needed: the overlay's copies are untracked files in the submodule, so popping the series leaves them
+behind. `--clean` removes only the files the overlay owns, and refuses to delete one that upstream has started tracking,
+so it will not take anything of yours or theirs with it. That is also how you compare behaviour against stock Orca, and it is faster and more honest
 than keeping a second checkout around.
 
 ### Where a change goes
@@ -58,9 +57,9 @@ A file that already exists in Orca is modified by a patch, with quilt. A file th
 outright: a plain `.ts` or `.tsx` file under `src/`, committed like any other source, never `quilt add`ed and never
 inside a patch.
 
-`ci/build/overlay.sh` copies `src/<path>` to `lib/orca/src/<path>`, so an import resolves the same whichever owner a
+`mise run overlay` copies `src/<path>` to `lib/orca/src/<path>`, so an import resolves the same whichever owner a
 module has. It runs after `quilt push -a` and copies last, which is why no path may be owned by both:
-`./ci/build/overlay.sh --check` asserts that and copies nothing. The series tests check it too, along with the reverse
+`mise run overlay --check` asserts that and copies nothing. The series tests check it too, along with the reverse
 case — a file in the submodule tree that belongs to neither owner.
 
 This is the split Debian, OpenWrt and Yocto all use: patches for upstream files, an overlay for new ones. code-server
@@ -108,21 +107,21 @@ has to be renumbered.
 ### Version updates to Orca
 
 ```bash
-VERSION=v1.4.157 ./ci/build/update-orca.sh
+VERSION=v1.4.157 mise run bump
 ```
 
-The script unapplies the series, moves the submodule to the new tag, then pushes each patch and refreshes it against the
+The task unapplies the series, moves the submodule to the new tag, then pushes each patch and refreshes it against the
 new base. It stops at the first patch that will not apply. Resolve that one by hand:
 
 ```bash
 quilt push -f     # force-apply; rejected hunks land in *.rej
 # ...apply the rejects by hand...
 quilt refresh
-./ci/build/update-orca.sh   # re-run to continue through the rest
+mise run bump     # re-run to continue through the rest
 ```
 
 Only `patches/` restacks. Files in `src/` have no upstream version to conflict with, so a bump can never reject them;
-what breaks them is an upstream API they call moving, and the build's typecheck is what reports that, not quilt.
+what breaks them is an upstream API they call moving, and `mise run test:types` is what reports that, not quilt.
 
 A patch applying is not a reason to keep it. Every bump is the moment to decide, for each patch, whether to keep it,
 shrink it, merge it into another, or drop it because upstream has since shipped the behaviour. Record the decision in
@@ -131,7 +130,7 @@ shrink it, merge it into another, or drop it because upstream has since shipped 
 ### Build
 
 ```bash
-./ci/build/build-appimage.sh   # writes dist/orca-server-<tag>-x86_64.AppImage
+mise run build   # writes dist/orca-server-<tag>-x86_64.AppImage
 ```
 
 The build applies the series, runs the overlay, reads the version off the submodule, and then runs Orca's own
@@ -140,14 +139,17 @@ The build applies the series, runs the overlay, reads the version off the submod
 ## Test
 
 ```bash
-./ci/dev/lint-scripts.sh   # shellcheck over every tracked shell script
-./ci/dev/test-scripts.sh   # series integrity
-./ci/dev/test-unit.sh      # the acceptance tests the series and the overlay carry
-./ci/dev/test-scope.sh     # upstream's tests beside every file either of them touches
-./ci/dev/test-e2e.sh       # boot the built AppImage and fetch the web client
+mise run lint:shell    # shellcheck over every tracked shell script
+mise run test:types    # typecheck the assembled tree
+mise run test:series   # series integrity
+mise run test:unit     # the acceptance tests the series and the overlay carry
+mise run test:scope    # upstream's tests beside every file either of them touches
+mise run test:e2e      # boot the built AppImage and fetch the web client
 ```
 
-`test-unit.sh` and `test-scope.sh` need the whole series applied and `pnpm install` run inside `lib/orca`. Both run the
+`mise run check` runs all of those except `test:e2e`, which is the set that gates a push.
+
+`test:unit` and `test:scope` need the whole series applied and `pnpm install` run inside `lib/orca`. Both run the
 overlay themselves, so the copy is never something you have to remember.
 
 ### Series tests
@@ -168,9 +170,9 @@ ownership resolvers, none of which are reachable from outside the process.
 
 They come from the same two owners the code does. A test for a file we added is a new file, so it lives in the overlay
 next to what it tests; a test that extends one of upstream's test files is a modification, so it lives in the patch that
-makes it. `test-unit.sh` derives its list from both, so adding either kind picks it up without touching the runner.
+makes it. `test:unit` derives its list from both, so adding either kind picks it up without touching the runner.
 
-`test-scope.sh` runs a wider net: upstream's own tests sitting beside every file the series or the overlay touches. A
+`test:scope` runs a wider net: upstream's own tests sitting beside every file the series or the overlay touches. A
 patch breaks tests it never names — one import at module scope took out 411 of them while the series' own tests stayed
 green.
 
@@ -182,7 +184,7 @@ run `pnpm test` inside `lib/orca` with the series popped and compare.
 
 ### End-to-end tests
 
-`test-e2e.sh` extracts the built AppImage, starts it under Xvfb and D-Bus, and waits for `GET /web-index.html`. It also
+`test:e2e` extracts the built AppImage, starts it under Xvfb and D-Bus, and waits for `GET /web-index.html`. It also
 asserts the listener is on loopback, because in trusted-proxy mode a bind to `0.0.0.0` means the mode silently did not
 take effect. Linux only.
 

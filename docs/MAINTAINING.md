@@ -53,7 +53,7 @@ first patch that will not apply. Resolving conflicts is described in [Contributi
 
 What restacks is `patches/`, and only that. The overlay's files do not exist upstream, so there is nothing for a bump to
 reject and quilt has no opinion about them. When a bump does break them it is because an upstream API they call has
-moved, and the build's typecheck is what says so — which is why a bump that produced no conflicts still has to build
+moved, and `mise run test:types` is what says so — which is why a bump that produced no conflicts still has to typecheck
 before it means anything.
 
 The part that is not mechanical is the review. A patch applying cleanly says nothing about whether it should still be
@@ -66,16 +66,19 @@ Watch for patches labelled `upstream-fixed` in the issue tracker. Those are the 
 
 ## Testing
 
-`./ci/dev/test-scripts.sh` guards the series and runs in CI on every change to `patches/` or `lib/`. It is the one suite
+`mise run test:series` guards the series and runs in CI on every change to `patches/` or `lib/`. It is the one suite
 that has to stay green, because a stale patch is invisible in a diff. It also enforces the boundary between the two
 owners: every file in the submodule tree belongs to a patch or to the overlay, and none belongs to both.
 
-`./ci/dev/test-unit.sh` runs the acceptance tests the series and the overlay carry. `./ci/dev/test-scope.sh` runs
+`mise run test:unit` runs the acceptance tests the series and the overlay carry. `mise run test:scope` runs
 upstream's own tests beside every file either of them touches, which is what catches a patch breaking tests it never
 names. Both apply to the patched tree, both need `pnpm install` inside `lib/orca` first, and both run in the pull
 request build.
 
-`./ci/dev/test-e2e.sh` boots the built AppImage and fetches the web client. Linux only, and it needs a build to exist.
+`mise run test:e2e` boots the built AppImage and fetches the web client. Linux only, and it needs a build to exist.
+
+`mise run check` is the whole push gate — the suites above except `test:e2e`, plus `test:types` and `lint:shell`.
+`mise run ci` adds the AppImage build after it.
 
 ## Documentation
 

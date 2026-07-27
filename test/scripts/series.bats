@@ -160,14 +160,14 @@ series_entries() {
   # adding a file that was written first records it as unchanged and `quilt
   # refresh` captures nothing. The file keeps working locally — it is in the
   # working tree — while being absent from the series, so a fresh checkout loses
-  # it and test-unit, which derives its list from the series, never runs it.
+  # it and test:unit, which derives its list from the series, never runs it.
   #
   # Two owners are legitimate. A patch modifies a file that exists upstream; the
   # overlay adds one that does not. Anything owned by neither is the silent case.
   cd "$ROOT"
   quilt pop -a > /dev/null 2>&1 || true
   quilt push -a > /dev/null 2>&1 || true
-  ./ci/build/overlay.sh > /dev/null
+  mise run overlay > /dev/null
 
   local owned orphans=""
   owned="$( {

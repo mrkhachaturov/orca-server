@@ -82,11 +82,11 @@ jobs:
 
       - run: quilt push -a
 
-      - run: ./ci/dev/test-scripts.sh
+      - run: mise run test:series
 
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - run: ./ci/build/build-appimage.sh '${{ inputs.patch || '0' }}'
+      - run: mise run build '${{ inputs.patch || '0' }}'
 
       # Everything between "## Unreleased" and the next "## ", or the end of the
       # file when there is no next one. code-server does this with

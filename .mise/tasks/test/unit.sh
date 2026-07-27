@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+#MISE description="Acceptance tests the series and the overlay carry"
+#MISE dir="{{config_root}}"
+#MISE depends=["up"]
 
 # Run the acceptance tests the series and the overlay carry.
 #
@@ -19,7 +22,6 @@
 set -Eeuo pipefail
 
 main() {
-  cd "$(dirname "$0")/../.."
 
   source ./ci/lib.sh
 
@@ -35,9 +37,6 @@ main() {
     echo >&2 "only $applied of $expected patches are applied — run: quilt push -a"
     exit 1
   fi
-
-  # The overlay has to be in the tree before its tests can run.
-  ./ci/build/overlay.sh > /dev/null
 
   # Every *.test.ts / *.test.tsx the series touches or the overlay owns,
   # deduplicated and made relative to lib/orca. Overlay paths already are.

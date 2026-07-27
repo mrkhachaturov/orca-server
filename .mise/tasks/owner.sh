@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
+#MISE description="Name the owner of a path: overlay, patch, or upstream"
+#MISE dir="{{config_root}}"
 
 # Who owns this file — the overlay, a patch, or upstream alone?
 #
-#   ./ci/dev/owner.sh src/shared/open-in-url-template.ts
-#   ./ci/dev/owner.sh lib/orca/src/shared/types.ts
+#   mise run owner src/shared/open-in-url-template.ts
+#   mise run owner lib/orca/src/shared/types.ts
 #
 # `quilt annotate` cannot answer this. On a file no patch owns it exits 0 and
 # prints the file with no attribution, which is indistinguishable from an
@@ -14,11 +16,10 @@
 set -Eeuo pipefail
 
 function main() {
-  cd "$(dirname "${0}")/../.."
 
   local arg=${1-}
   if [ -z "$arg" ]; then
-    echo "usage: owner.sh <path>   (relative to the repo, lib/orca, or src/)" >&2
+    echo "usage: mise run owner <path>   (relative to the repo, lib/orca, or src/)" >&2
     return 1
   fi
 
@@ -41,6 +42,8 @@ function main() {
     | xargs -n1 basename 2> /dev/null || true)
   if [ -n "$owners" ]; then
     echo "patch     $rel"
+    # shellcheck disable=SC2001  # indenting every line of a multi-line value is
+    # not a substring replacement; ${var//} cannot express it.
     echo "$owners" | sed 's/^/          /'
     echo "          exists upstream; quilt owns the change. Line-level:"
     echo "          quilt annotate lib/orca/$rel"
@@ -60,7 +63,7 @@ function main() {
   fi
 
   if [ "$found" -eq 2 ]; then
-    echo >&2 "error: owned twice. ./ci/build/overlay.sh --check explains why that breaks."
+    echo >&2 "error: owned twice. mise run overlay --check explains why that breaks."
     return 1
   fi
 }

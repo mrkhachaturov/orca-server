@@ -12,13 +12,13 @@ degraded desktop.
 ## Two owners, disjoint
 
 **`patches/` modifies files that exist upstream. `src/` adds files that do not.** No path may be
-owned by both; `ci/build/overlay.sh --check` fails if one is.
+owned by both; `mise run overlay --check` fails if one is.
 
-The order is always `quilt push -a` → `./ci/build/overlay.sh` → build or test. The overlay copies
-`src/<path>` to `lib/orca/src/<path>`, so an import reads the same either way. Our code runs inside
-Orca's process; only the storage location differs.
+The order is always `quilt push -a` → `mise run overlay` → build or test; `mise run up` is those two
+halves in that order. The overlay copies `src/<path>` to `lib/orca/src/<path>`, so an import reads
+the same either way. Our code runs inside Orca's process; only the storage location differs.
 
-This splits the bump gates. **`quilt push` gates `patches/`; `pnpm run typecheck:tsc` gates `src/`.**
+This splits the bump gates. **`quilt push` gates `patches/`; `mise run test:types` gates `src/`.**
 An overlay file cannot fail to apply, and still breaks when upstream renames or drops something it
 imports. Neither gate says whether a capability is still needed — that is the review.
 
@@ -26,18 +26,19 @@ imports. Neither gate says whether a capability is still needed — that is the 
 
 | Task | Command |
 | --- | --- |
-| Assemble the tree | `quilt push -a && ./ci/build/overlay.sh` |
-| Back to pristine upstream | `quilt pop -a && ./ci/build/overlay.sh --clean` |
-| Who owns a file | `./ci/dev/owner.sh <path>` |
-| Typecheck | `cd lib/orca && pnpm run typecheck:tsc` |
-| Series integrity (10 checks) | `./ci/dev/test-scripts.sh` |
-| Acceptance tests | `./ci/dev/test-unit.sh` |
-| Tests beside every touched directory | `./ci/dev/test-scope.sh` |
-| Build the AppImage | `./ci/build/build-appimage.sh` |
-| Boot it and fetch the web client | `./ci/dev/test-e2e.sh` — Linux/amd64 only |
-| Shell lint | `./ci/dev/lint-scripts.sh` |
+| Assemble the tree | `mise run up` |
+| Back to pristine upstream | `mise run down` |
+| Who owns a file | `mise run owner <path>` |
+| Typecheck | `mise run test:types` |
+| Series integrity (10 checks) | `mise run test:series` |
+| Acceptance tests | `mise run test:unit` |
+| Tests beside every touched directory | `mise run test:scope` |
+| Shell lint | `mise run lint:shell` |
+| Everything above that gates a push | `mise run check` |
+| Build the AppImage | `mise run build` |
+| Boot it and fetch the web client | `mise run test:e2e` — Linux/amd64 only |
 
-`./ci/build/overlay.sh --into <root>` copies the overlay into another tree, for a probe worktree at
+`mise run overlay --into <root>` copies the overlay into another tree, for a probe worktree at
 a different tag.
 
 ## Flow
@@ -51,10 +52,10 @@ decide the owner and the patch → write it → test it red before green → gat
 An upstream bump:
 
 ```
-./ci/build/update-orca.sh → re-justify each patch: keep | shrink | merge | drop → write → gate
+mise run bump → re-justify each patch: keep | shrink | merge | drop → write → gate
 ```
 
-The restack script decides nothing. A clean restack means the patches still apply, which is not the
+The restack decides nothing. A clean restack means the patches still apply, which is not the
 same as still being needed.
 
 Under Claude Code each step is a skill in `.claude/skills/`: `orca-patch-audit`,
@@ -133,9 +134,9 @@ Upstream stubs `web-preload-api.ts` exactly where no wire exists yet.
 
 `squashfs-root/AppRun` is the Electron **desktop** entrypoint and silently ignores a `serve`
 positional — it boots the GUI with the stock server on another port and reports success. The
-user-facing CLI is the shim at `squashfs-root/resources/bin/orca-ide`. `ci/dev/test-e2e.sh` encodes
-the whole launch line; read it rather than reconstructing one. `docs/install.md` is the public
-version.
+user-facing CLI is the shim at `squashfs-root/resources/bin/orca-ide`. The `test:e2e` task encodes
+the whole launch line; read `.mise/tasks/test/e2e.sh` rather than reconstructing one.
+`docs/install.md` is the public version.
 
 ## More
 

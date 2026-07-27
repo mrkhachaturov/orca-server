@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
+#MISE description="Boot the built AppImage and fetch the web client"
+#MISE dir="{{config_root}}"
 
 # Boot the built AppImage headless and check that it actually serves the web
 # client. This is the one test that exercises the product rather than the
 # series: everything else can pass while the thing refuses to start.
 #
-#   ./ci/build/build-appimage.sh && ./ci/dev/test-e2e.sh
+#   mise run build && mise run test:e2e
 #
 # Linux/amd64 only — the AppImage is a Linux binary.
 
@@ -32,7 +34,6 @@ cleanup() {
 trap cleanup EXIT
 
 main() {
-  cd "$(dirname "$0")/../.."
 
   source ./ci/lib.sh
 
@@ -44,7 +45,7 @@ main() {
   local appimage
   appimage="$(find "$RELEASE_PATH" -maxdepth 1 -name '*.AppImage' -print -quit 2> /dev/null)"
   if [[ -z ${appimage-} ]]; then
-    echo >&2 "no AppImage in $RELEASE_PATH — run ./ci/build/build-appimage.sh first"
+    echo >&2 "no AppImage in $RELEASE_PATH — run mise run build first"
     exit 1
   fi
 

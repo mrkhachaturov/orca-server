@@ -17,7 +17,7 @@ broken, in the order they have actually bitten this repo:
 
 1. **It does not compile.** `vitest` transpiles and never typechecks, so a test with a wrong prop
    type, a fixture key that is not a real key, or a stale import runs green locally and fails only
-   in `build-appimage.sh`, minutes into CI.
+   in `mise run test:types`, or minutes into CI if you skip it.
 2. **It never fails.** A test that has never been red proves nothing about the code — only that it
    agrees with it.
 3. **It asserts the defect.** Written by reading the implementation, it freezes the bug in place.
@@ -25,20 +25,19 @@ broken, in the order they have actually bitten this repo:
 ## The loop
 
 ```bash
-./ci/build/overlay.sh                         # after EVERY edit to a file in src/
-cd lib/orca
-find config -name '*.tsbuildinfo' -delete     # stale info hides errors you just wrote
-pnpm run typecheck:tsc                        # MUST be clean — vitest will not tell you
-pnpm exec vitest run --config config/vitest.config.ts <file>
+mise run overlay       # after EVERY edit to a file in src/
+mise run test:types    # MUST be clean — vitest will not tell you
+cd lib/orca && pnpm exec vitest run --config config/vitest.config.ts <file>
 ```
 
 An overlay test is edited in `src/` and run from the copy at `lib/orca/src/`, so a run that skips
 the overlay executes the previous version of the test. Editing the copy instead is worse: the next
 overlay run overwrites it and nothing records the edit.
 
-`typecheck:tsc` is not optional and not a later gate. Run it before you claim a test is written.
-Note the `rm`/`find` line: under zsh a `rm config/*.tsbuildinfo` with no match aborts the whole
-command chain, so the typecheck silently never runs.
+`test:types` is not optional and not a later gate. Run it before you claim a test is written. It
+deletes the stale `tsbuildinfo` that would otherwise hide an error you just wrote, which is the
+step a hand-run `pnpm run typecheck:tsc` skips — and under zsh a `rm config/*.tsbuildinfo` with no
+match aborts the whole command chain, so the typecheck silently never runs.
 
 ## Prove it red before you make it green
 
@@ -47,8 +46,8 @@ overlay's implementation, so an overlay test of an overlay module stays green wi
 To remove both owners:
 
 ```bash
-quilt pop -a && ./ci/build/overlay.sh --clean    # lib/orca back to pristine
-./ci/build/overlay.sh && quilt push -a           # and back again
+mise run down   # lib/orca back to pristine
+mise run up     # and back again
 ```
 
 That answers "does this fail on bare upstream", which is the drop question. It does not answer
@@ -105,7 +104,7 @@ A new test file goes in the overlay, at `src/<path>`, mirroring where it must la
 `lib/orca/src/`. No quilt command touches it. A test that *modifies* an upstream test file stays
 in the patch that modifies it: `quilt add` **before** the first edit — see `orca-patch-author` —
 then `quilt refresh` and confirm with `grep -c '^+++ orca-server/lib/orca/<path>$'
-patches/<patch>.diff`. Either way the file count from `./ci/dev/test-unit.sh` must rise; it
+patches/<patch>.diff`. Either way the file count from `mise run test:unit` must rise; it
 derives its list from the patches and the overlay together. `series.bats` check 10 fails a file
 owned by neither.
 
