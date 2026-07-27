@@ -71,6 +71,20 @@ series_entries() {
   }
 }
 
+@test "every patch carries a test file" {
+  # Necessary, not sufficient. It catches a patch that ships no test at all;
+  # whether the test fails without the patch, and whether it asserts the intended
+  # behaviour rather than the observed one, stays a review question.
+  local bare=""
+  while read -r p; do
+    grep -qE '^\+\+\+ .*\.test\.tsx?$' "$PATCHES/$p" || bare="$bare $p"
+  done < <(series_entries)
+  [ -z "$bare" ] || {
+    echo "ships no test:$bare"
+    false
+  }
+}
+
 @test "every patch opens with a rationale header" {
   # quilt keeps free text above the first Index: line. A patch that cannot say
   # why it exists cannot be re-justified on the next upstream bump.
