@@ -31,6 +31,8 @@ Orca v9.99.999
 
 ## Unreleased
 
+Orca v1.4.158
+
 ### Added
 
 - An `aarch64` AppImage alongside the `x86_64` one. Both are release targets,
@@ -39,31 +41,9 @@ Orca v9.99.999
 
 ### Changed
 
-- The `ci/` directory is gone. Its scripts are mise tasks under `.mise/tasks/`,
-  so `mise run <task>` is the only entry point. `ci/lib.sh` is `.mise/lib.sh`;
-  the electron-builder overlay is `build/electron-builder.overlay.cjs`.
-- `flint` replaces prettier and the shell lint script, covering shell, markdown,
-  YAML, TOML, the Dockerfile and the workflows. A linter is activated by being
-  pinned in `mise.toml`, so there is no second list to keep in step.
-- `hk` owns the git lifecycle from `hk.pkl`: hygiene and fixers on commit,
-  conventional-commit on the message, series integrity on push.
-- The workflows run least-privilege, audited by `zizmor`: no unused permission,
-  no token left in the workspace, the App token scoped to two permissions, and
-  no workflow input reaching a shell through `${{ }}`.
-- Our own source now lives in `src/` instead of inside the patches. A patch
-  modifies a file that exists upstream; the overlay in `src/` adds a file that
-  does not, and `mise run overlay` copies it into Orca's tree after the series
-  applies. 29 files and 3575 lines moved out, taking `patches/` from 5856 added
-  lines to 2640. Build and tests are unchanged: 26 test files, 1161 tests. Those
-  files can no longer fail to apply on a bump; they can still fail to compile
-  when upstream renames or drops something they import, which
-  `pnpm run typecheck:tsc` reports.
-- `series.bats` now requires a patch to name its tests in its header, rather than
-  to contain a test file. Containing one was never evidence: all thirteen patches
-  passed that check while four were untested in substance.
-- `AGENTS.md` and the four workflow skills state their rules instead of narrating
-  them, and no longer restate what `AGENTS.md` already carries. 726 lines to 639,
-  with every command, path and invariant kept.
+- Update to Orca v1.4.158. All thirteen patches were re-justified against the
+  new tag and all thirteen were kept: upstream shipped nothing that closes any
+  of the capabilities they carry.
 
 ## [4.156.0] - 2026-07-27
 

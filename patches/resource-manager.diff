@@ -22,7 +22,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.test.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
-@@ -3856,3 +3856,130 @@ describe('web GitLab preload API', () =>
+@@ -4010,3 +4010,130 @@ describe('web GitLab preload API', () =>
      ])
    })
  })
@@ -157,7 +157,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -770,7 +770,19 @@ function createWebPreloadApi(): Partial<
+@@ -774,7 +774,19 @@ function createWebPreloadApi(): Partial<
          }))
      },
      memory: {

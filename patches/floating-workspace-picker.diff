@@ -147,7 +147,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    createSetupRunnerScript,
    getDefaultTabCommandTrustContent,
    getDefaultTabsLaunch,
-@@ -15184,6 +15190,32 @@ export class OrcaRuntimeService {
+@@ -15196,6 +15202,32 @@ export class OrcaRuntimeService {
      return scanNestedRepos({ path, options: { timeoutMs: 15_000 } })
    }
  
@@ -441,7 +441,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  } from '../../../shared/types'
  import type { CliInstallStatus } from '../../../shared/cli-install-types'
  import type { SkillDiscoveryResult } from '../../../shared/skills'
-@@ -529,10 +530,29 @@ function createWebPreloadApi(): Partial<
+@@ -533,10 +534,29 @@ function createWebPreloadApi(): Partial<
        startupDiagnostic: () => Promise.resolve(),
        getKeyboardInputSourceId: () => Promise.resolve(null),
        setUnreadDockBadgeCount: () => Promise.resolve(),
