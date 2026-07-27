@@ -13,6 +13,24 @@ set -Eeuo pipefail
 PORT="${PORT:-6799}"
 TIMEOUT="${TIMEOUT:-120}"
 
+# Why these are file-scope and the cleanup is a function: a trap body is evaluated when the trap
+# fires, in the scope that is current then. An EXIT trap fires after main has returned, so a
+# `local` it referred to is already gone — and under `set -u` that aborts the script with
+# "unbound variable" AFTER the run has already passed, turning a green e2e into a red one and
+# leaving the serve process behind because the kill never ran.
+work=""
+serve_pid=""
+
+cleanup() {
+  if [[ -n $serve_pid ]]; then
+    kill "$serve_pid" 2> /dev/null || true
+  fi
+  if [[ -n $work ]]; then
+    rm -rf "$work"
+  fi
+}
+trap cleanup EXIT
+
 main() {
   cd "$(dirname "$0")/../.."
 
@@ -30,9 +48,7 @@ main() {
     exit 1
   fi
 
-  local work
   work="$(mktemp -d)"
-  trap 'rm -rf "$work"' EXIT
 
   # Containers and LXCs usually have no FUSE; extraction is the supported path
   # and keeps stdout free of the wrapper's own chatter.
@@ -56,8 +72,7 @@ main() {
     dbus-run-session -- xvfb-run -a \
     "$shim" serve --trusted-proxy --port "$PORT" \
     > "$work/serve.log" 2>&1 &
-  local serve_pid=$!
-  trap 'kill "$serve_pid" 2>/dev/null || true; rm -rf "$work"' EXIT
+  serve_pid=$!
 
   # Health is GET /web-index.html. Not /trusted-session, which 503s until an
   # offer is minted, and not the WebSocket port.
