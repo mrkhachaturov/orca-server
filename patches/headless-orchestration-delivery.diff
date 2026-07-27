@@ -69,7 +69,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.test.ts
    close(): void {}
  }
  
-@@ -16041,6 +16080,126 @@ describe('OrcaRuntimeService', () => {
+@@ -16100,6 +16139,126 @@ describe('OrcaRuntimeService', () => {
      }
    })
  
@@ -200,7 +200,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -1204,6 +1204,13 @@ type RuntimePtyWorktreeRecord = {
+@@ -1205,6 +1205,13 @@ type RuntimePtyWorktreeRecord = {
    tailWaitState?: TerminalTailWaitState
  }
  
@@ -214,7 +214,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  type TerminalCreateOptions = {
    command?: string
    claudeAgentTeamsSourceCommand?: string
-@@ -8211,6 +8218,13 @@ export class OrcaRuntimeService {
+@@ -8223,6 +8230,13 @@ export class OrcaRuntimeService {
        ptyRecordChanged = prevTitle !== normalizedTitle || prevStatus !== agentStatus
        if (agentStatus === 'idle' && prevStatus !== 'idle') {
          this.resolvePtyTuiIdleWaiters(pty, ptyId)
@@ -228,7 +228,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        }
        const shouldDelayMobileSnapshot =
          ptyRecordChanged &&
-@@ -10934,7 +10948,8 @@ export class OrcaRuntimeService {
+@@ -10946,7 +10960,8 @@ export class OrcaRuntimeService {
        this.retireMobileSessionSurfacesForPty(ptyId, incarnationId, exactSurfaces)
      }
  
@@ -238,7 +238,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        this.detachedPreAllocatedLeaves.delete(ptyId)
        leaf.connected = false
        leaf.writable = false
-@@ -10942,6 +10957,16 @@ export class OrcaRuntimeService {
+@@ -10954,6 +10969,16 @@ export class OrcaRuntimeService {
        this.resolveExitWaiters(leaf)
        this.failActiveDispatchOnExit(leaf, exitCode)
      }
@@ -255,7 +255,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      this.pruneDisconnectedPtyRecords()
    }
  
-@@ -12552,12 +12577,15 @@ export class OrcaRuntimeService {
+@@ -12564,12 +12589,15 @@ export class OrcaRuntimeService {
    // next poll cycle. This catches agent crashes and unexpected exits within
    // milliseconds. The task is set back to 'pending' so it can be re-dispatched.
    private failActiveDispatchOnExit(leaf: RuntimeLeafRecord, exitCode: number): void {
@@ -274,7 +274,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        return
      }
  
-@@ -26860,6 +26888,16 @@ export class OrcaRuntimeService {
+@@ -26888,6 +26916,16 @@ export class OrcaRuntimeService {
  
    deliverPendingMessagesForHandle(handle: string): void {
      try {
@@ -291,7 +291,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        const { leaf } = this.getLiveLeafForHandle(handle)
        if (leaf.lastAgentStatus === 'idle') {
          this.deliverPendingMessages(leaf)
-@@ -27441,26 +27479,53 @@ export class OrcaRuntimeService {
+@@ -27469,26 +27507,53 @@ export class OrcaRuntimeService {
  
    // Why: push-on-idle delivery is event-driven (no polling) because the runtime owns both the message store and terminal status detection.
    private deliverPendingMessages(leaf: RuntimeLeafRecord): void {
@@ -352,7 +352,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      if (!wrote) {
        return
      }
-@@ -27471,8 +27536,7 @@ export class OrcaRuntimeService {
+@@ -27499,8 +27564,7 @@ export class OrcaRuntimeService {
        return
      }
  
@@ -362,7 +362,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        // Why: Cursor Agent treats injected PTY text as editable prompt input, so submitting must stay under user control.
        this._orchestrationDb.markAsDelivered(unread.map((m) => m.id))
        return
-@@ -27480,10 +27544,9 @@ export class OrcaRuntimeService {
+@@ -27508,10 +27572,9 @@ export class OrcaRuntimeService {
  
      // Why: Claude Code treats a large PTY write as a paste and swallows a \r in the same write; send Enter separately after a delay, stamping delivered_at only once \r is confirmed.
      // Important (design doc §3.2, feedback #2): stamp delivered_at, not read — read means "a check-caller consumed this"; flipping it would hide the message from check --unread.

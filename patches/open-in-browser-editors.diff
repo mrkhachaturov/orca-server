@@ -1203,7 +1203,7 @@ Index: orca-server/lib/orca/src/shared/types.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/shared/types.ts
 +++ orca-server/lib/orca/src/shared/types.ts
-@@ -2573,6 +2573,11 @@ export type OpenInApplication = {
+@@ -2574,6 +2574,11 @@ export type OpenInApplication = {
    id: string
    label: string
    command: string

@@ -129,7 +129,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import type { SkillDiscoveryResult } from '../../../shared/skills'
  import type { SkillFreshnessInventory } from '../../../shared/skill-freshness'
  import type { SshConnectionState, SshTarget } from '../../../shared/ssh-types'
-@@ -2757,7 +2758,9 @@ function createPreflightApi(): NonNullab
+@@ -2763,7 +2764,9 @@ function createPreflightApi(): NonNullab
  }
  
  function createCliApi(): NonNullable<Partial<PreloadApi>['cli']> {
@@ -140,7 +140,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
      platform: getBrowserPlatform(),
      commandName: getBrowserPlatform() === 'linux' ? 'orca-ide' : 'orca',
      commandPath: null,
-@@ -2769,15 +2772,40 @@ function createCliApi(): NonNullable<Par
+@@ -2775,15 +2778,40 @@ function createCliApi(): NonNullable<Par
      state: 'unsupported',
      currentTarget: null,
      unsupportedReason: 'launch_mode_unavailable',

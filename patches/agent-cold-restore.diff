@@ -37,7 +37,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import type { RuntimeClientEvent } from '../../shared/runtime-client-events'
  import { toRuntimeActivateWorktreeEvent } from '../../shared/runtime-client-events'
  import {
-@@ -5745,11 +5751,25 @@ export class OrcaRuntimeService {
+@@ -5746,11 +5752,25 @@ export class OrcaRuntimeService {
          let agentStartup: Awaited<
            ReturnType<OrcaRuntimeService['resolveMobileSessionTerminalCommand']>
          > = {}
@@ -65,7 +65,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
              })
            } catch {
              // Why: a disabled or unresolvable agent must not make the tab
-@@ -5768,7 +5788,11 @@ export class OrcaRuntimeService {
+@@ -5769,7 +5789,11 @@ export class OrcaRuntimeService {
              env: agentStartup.env,
              startupCommandDelivery: agentStartup.startupCommandDelivery,
              launchConfig: agentStartup.launchConfig,
@@ -78,7 +78,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
              targetGroupId
            })
          } catch (err) {
-@@ -22424,7 +22448,8 @@ export class OrcaRuntimeService {
+@@ -22452,7 +22476,8 @@ export class OrcaRuntimeService {
            launchAgent: startupCommand.launchAgent,
            viewMode: opts.viewMode,
            targetGroupId: opts.targetGroupId,
@@ -88,7 +88,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
          }
        )
      }
-@@ -22537,7 +22562,8 @@ export class OrcaRuntimeService {
+@@ -22565,7 +22590,8 @@ export class OrcaRuntimeService {
            launchAgent: startupCommand.launchAgent,
            viewMode: opts.viewMode,
            targetGroupId: opts.targetGroupId,
@@ -98,7 +98,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
          }
        )
      } catch (error) {
-@@ -22574,6 +22600,9 @@ export class OrcaRuntimeService {
+@@ -22602,6 +22628,9 @@ export class OrcaRuntimeService {
        agentPrompt?: string
        launchConfig?: SleepingAgentLaunchConfig
        launchAgent?: TuiAgent
@@ -108,7 +108,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      }
    ): Promise<{
      command?: string
-@@ -22582,6 +22611,10 @@ export class OrcaRuntimeService {
+@@ -22610,6 +22639,10 @@ export class OrcaRuntimeService {
      startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
      launchConfig?: SleepingAgentLaunchConfig
      launchAgent?: TuiAgent
@@ -119,7 +119,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    }> {
      if (opts.command || !opts.agent) {
        return {
-@@ -22609,17 +22642,35 @@ export class OrcaRuntimeService {
+@@ -22637,17 +22670,35 @@ export class OrcaRuntimeService {
        isRemote,
        terminalWindowsShell: settings.terminalWindowsShell
      })
@@ -166,7 +166,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      if (!startupPlan) {
        throw new Error(`Could not build launch command for ${opts.agent}.`)
      }
-@@ -22643,10 +22694,43 @@ export class OrcaRuntimeService {
+@@ -22671,10 +22722,43 @@ export class OrcaRuntimeService {
        envToDelete: opts.envToDelete,
        launchConfig: startupPlan.launchConfig,
        launchAgent: opts.agent,
@@ -211,7 +211,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    private async createHeadlessMobileSessionTerminal(
      worktreeId: string,
      activate: boolean,
-@@ -22662,6 +22746,8 @@ export class OrcaRuntimeService {
+@@ -22690,6 +22774,8 @@ export class OrcaRuntimeService {
        viewMode?: 'terminal' | 'chat'
        targetGroupId?: string
        launchConfig?: SleepingAgentLaunchConfig
@@ -220,7 +220,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      } = {}
    ): Promise<RuntimeMobileSessionCreateTerminalResult> {
      const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`)
-@@ -22677,6 +22763,9 @@ export class OrcaRuntimeService {
+@@ -22705,6 +22791,9 @@ export class OrcaRuntimeService {
        envToDelete: opts.envToDelete,
        ...(opts.launchConfig ? { launchConfig: opts.launchConfig } : {}),
        ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
@@ -230,7 +230,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
        startupCommandDelivery: opts.startupCommandDelivery,
        ...(opts.identity
-@@ -22696,6 +22785,11 @@ export class OrcaRuntimeService {
+@@ -22724,6 +22813,11 @@ export class OrcaRuntimeService {
      if (!livePty) {
        throw new Error('terminal_handle_stale')
      }

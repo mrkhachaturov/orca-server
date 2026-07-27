@@ -267,7 +267,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    // Why: test-only overrides for the two constants below; production must not pass these (defaults set by §3.1).
    keepaliveIntervalMs?: number
    longPollCap?: number
-@@ -438,6 +442,8 @@ export class OrcaRuntimeRpcServer {
+@@ -447,6 +451,8 @@ export class OrcaRuntimeRpcServer {
    private readonly wsPort: number
    private readonly preferPinnedWsPort: boolean
    private readonly webClientRoot: string | undefined
@@ -276,7 +276,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    private readonly authToken = randomBytes(24).toString('hex')
    private readonly keepaliveIntervalMs: number
    private readonly longPollCap: number
-@@ -472,6 +478,8 @@ export class OrcaRuntimeRpcServer {
+@@ -484,6 +490,8 @@ export class OrcaRuntimeRpcServer {
      wsPort = DEFAULT_WS_PORT,
      preferPinnedWsPort = false,
      webClientRoot,
@@ -285,7 +285,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
      keepaliveIntervalMs = KEEPALIVE_INTERVAL_MS,
      longPollCap = LONG_POLL_CAP
    }: OrcaRuntimeRpcServerOptions) {
-@@ -484,6 +492,8 @@ export class OrcaRuntimeRpcServer {
+@@ -496,6 +504,8 @@ export class OrcaRuntimeRpcServer {
      this.wsPort = wsPort
      this.preferPinnedWsPort = preferPinnedWsPort
      this.webClientRoot = webClientRoot
@@ -293,8 +293,8 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
 +    this.trustedProxyAddress = trustedProxyAddress
      this.keepaliveIntervalMs = keepaliveIntervalMs
      this.longPollCap = longPollCap
-     this.relayRevokeOutbox = new RelayRevokeOutbox(userDataPath)
-@@ -577,6 +587,19 @@ export class OrcaRuntimeRpcServer {
+     // Why: derived, not configurable — the reservation must hold for whatever cap a caller picks.
+@@ -591,6 +601,19 @@ export class OrcaRuntimeRpcServer {
      return ws?.endpoint ?? null
    }
  
@@ -314,7 +314,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    createPairingOffer(args: {
      address?: string | null
      name?: string
-@@ -900,10 +923,15 @@ export class OrcaRuntimeRpcServer {
+@@ -914,10 +937,15 @@ export class OrcaRuntimeRpcServer {
          this.e2eeKeypair = pairingIdentity.e2eeKeypair
          this.pairingInitializationFailure = null
          try {
@@ -331,7 +331,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
              // Why: stable fallback port across restarts keeps paired devices' endpoints valid (STA-1511); wsPort 0 = random (E2E).
              ...(this.wsPort !== 0 ? { fallbackPort: readWsFallbackPort(this.userDataPath) } : {}),
              ...(this.preferPinnedWsPort ? { preferPinnedPort: true } : {})
-@@ -966,7 +994,8 @@ export class OrcaRuntimeRpcServer {
+@@ -980,7 +1008,8 @@ export class OrcaRuntimeRpcServer {
            activeTransports.push(wsTransport)
            transportsMeta.push({
              kind: 'websocket',
@@ -461,7 +461,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -106,7 +106,11 @@ import {
+@@ -110,7 +110,11 @@ import {
    updateStoredEnvironmentRuntimeId,
    type StoredWebRuntimeEnvironment
  } from './web-runtime-environment'
@@ -474,7 +474,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import { WebRuntimeClient } from './web-runtime-client'
  import { RuntimeRpcCallQueuePool } from '../../../shared/runtime-rpc-call-queue'
  import {
-@@ -3272,10 +3276,46 @@ async function getRemoteRuntimeStatus():
+@@ -3278,10 +3282,46 @@ async function getRemoteRuntimeStatus():
    return callRuntimeResult<RuntimeStatus>('status.get', undefined, 15_000)
  }
  
