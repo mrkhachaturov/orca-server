@@ -104,13 +104,15 @@ hooks {
       // The same engine the pull request will run, against the branch, before the
       // push exists. Only critical stops it — the server gate agrees.
       ["kodus"] = new Step {
+        // `*` stops at a slash, so it is every root file — mise.toml, hk.pkl,
+        // Dockerfile — which a per-name list kept losing.
         glob = List(
+          "*",
           "src/**",
           "patches/**",
           ".mise/**/*.sh",
           ".github/**",
           ".kody/**",
-          "kodus-config.yml",
           "test/**",
           "build/**"
         )
