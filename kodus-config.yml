@@ -38,7 +38,11 @@ suggestionControl:
   limitationType: pr
   # The schema floor. Kody Rules bypass it, so this caps generic suggestions only.
   maxSuggestions: 9
-  severityLevelFilter: high
+  # medium, not high: reviewMode is pinned to normal at this version — no UI, no CLI,
+  # no schema field — so one generalist agent covers bug, security and performance in
+  # a single pass. It found nothing in a shell task where three real defects sat.
+  # Letting medium through is the only lever left on generic findings.
+  severityLevelFilter: medium
   # False is the default and the point: our rules must surface whatever the filter
   # and the cap would otherwise drop.
   applyFiltersToKodyRules: false
