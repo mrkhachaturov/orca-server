@@ -108,6 +108,7 @@ hooks {
           "src/**",
           "patches/**",
           ".mise/**/*.sh",
+          ".github/**",
           ".kody/**",
           "kodus-config.yml",
           "test/**",
