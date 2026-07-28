@@ -41,6 +41,7 @@ capability is still needed; that is the review.
 | Boot it and fetch the web client | `mise run test:e2e` — Linux host of the artifact's arch |
 | Move the pin and restack the series | `VERSION=<tag> mise run bump` |
 | Push the review rules to Kodus | `mise run kodus:rules` |
+| Validate `kodus-config.yml` | `mise run kodus:config` |
 
 Every gate that reads the assembled tree declares `depends = ["up"]` except `test:series`, which
 pops and pushes the series itself. `check` sequences them: `test:series` alone, then `up`, then the

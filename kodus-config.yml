@@ -1,0 +1,72 @@
+# The review contract, read from the repo root, validated against
+# libs/common/schemas/codereview.json in kodus-ai 2.1.27.
+#
+# additionalProperties is false and eleven keys are required, so an unknown or
+# missing key invalidates the whole file rather than the one line. Kody Rules are
+# not among them — `mise run kodus:rules` owns those.
+#
+# Live only while "kodus Config File Overrides Web Preferences" is on. That toggle
+# is the one setting with no representation here.
+---
+version: "1.2"
+
+summary:
+  generatePRSummary: true
+  customInstructions: ""
+  behaviourForExistingDescription: concatenate
+  behaviourForNewCommits: none
+
+# Off is the deliberate half. flint, oxlint and rumdl decide style, formatting and
+# markdown, and a mechanical check beats an LLM at all three. refactoring and
+# maintainability are opinion on a patch series whose shape upstream dictates.
+# breaking_changes stays on: every patch rides upstream's API, and that is the one
+# thing a bump silently breaks.
+reviewOptions:
+  security: true
+  kody_rules: true
+  error_handling: true
+  potential_issues: true
+  breaking_changes: true
+  code_style: false
+  refactoring: false
+  maintainability: false
+  documentation_and_comments: false
+  performance_and_optimization: false
+
+suggestionControl:
+  groupingMode: full
+  limitationType: pr
+  # The schema floor. Kody Rules bypass it, so this caps generic suggestions only.
+  maxSuggestions: 9
+  severityLevelFilter: high
+  # False is the default and the point: our rules must surface whatever the filter
+  # and the cap would otherwise drop.
+  applyFiltersToKodyRules: false
+
+ignorePaths:
+  # Upstream is not ours to review.
+  - lib/**
+  - pnpm-lock.yaml
+  - ThirdPartyNotices.txt
+# patches/ is deliberately absent: new-file-belongs-to-the-overlay reads the .diff
+# hunk headers, and it catches the one thing series.bats check 10 misses — a file
+# the patch itself created.
+
+baseBranches: []
+ignoredTitleKeywords: []
+
+automatedReviewActive: true
+
+# Requests changes on critical findings — the four critical rules are the only ones
+# that block. Everything below is advice.
+isRequestChangesActive: true
+
+# Never approve. A pull request an agent opened must not be approved by the
+# pipeline that reviewed it.
+pullRequestApprovalActive: false
+
+# An agent opens a draft, reads the review, and marks it ready.
+runOnDraft: true
+
+# Without it, a skipped review is indistinguishable from a clean one.
+showStatusFeedback: true

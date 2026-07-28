@@ -42,7 +42,7 @@ run = "flint run --full"
 
 [tasks."check:gates"]
 description = "The gates that only read the tree — safe in parallel"
-depends = ["test:types", "test:unit", "test:scope", "lint"]
+depends = ["test:types", "test:unit", "test:scope", "lint", "kodus:config"]
 
 [tasks.check]
 description = "Everything that gates a push"

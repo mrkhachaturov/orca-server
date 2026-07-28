@@ -45,8 +45,8 @@ function stamp_uuid() {
   rm -f "$file.bak"
 }
 
-# Only critical blocks. Everything below it is advice, because the mechanical gates
-# already decide whether the tree is sound and a second opinion should not gate a push.
+# The one setting kodus-config.yml cannot carry: the schema has isRequestChangesActive
+# but no threshold, so critical-only is set here. Everything else lives in the file.
 function apply_settings() {
   kodus config remote set . review.requestChanges.minSeverity critical > /dev/null
   echo "settings requestChanges.minSeverity=critical"
