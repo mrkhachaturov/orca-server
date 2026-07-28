@@ -8,9 +8,13 @@ description: >-
   already shipped upstream.
 when_to_use: >-
   After diagnosis names the symbols you will change and before writing code; on an upstream bump
-  before refreshing patches; periodically to find coupled patches. Triggers: "which patch should
-  this go in", "new patch or extend", "does upstream already do this", "audit the series",
-  "what changed upstream", "can we drop this patch".
+  before refreshing patches; periodically to find coupled patches. Run this FIRST on any bump —
+  before reading the diff by hand — including when the request never says "audit". Triggers:
+  "which patch should this go in", "new patch or extend", "does upstream already do this",
+  "audit the series", "what changed upstream", "can we drop this patch", "there is a new Orca
+  release", "the update PR was opened", "should we take this release", "what does the new version
+  give us", "is anything in it useful for us", "does it change how our patches work", "review the
+  bump".
 ---
 
 # Patch audit — where a change belongs, and what the series should still be

@@ -106,18 +106,14 @@ representation**: local *is* the server, so there is no local fallback. Upstream
 
 ## Invariants
 
+Judgement, held every session. The mechanics that fail silently while a file is open —
+quilt ownership, overlay imports — load from `.claude/rules/` when that file is opened.
+
 - **Fixing how a step ran does not re-check whether it should run.** When the premise moved — the
   pin, the branch, the tag — re-decide the step instead of re-running a corrected version of it.
 - **An unverified claim is labelled unverified.** "I did not check" is an answer; a guess stated as
   a finding is not. A query returning nothing is not evidence of absence — it can also mean the
   query was wrong.
-- **Order in the series is data**, held in `patches/series`. Patches are named for the capability
-  they add. Never renumber, and never put a patch identifier in a code comment — name the rule.
-- **A new file is never a quilt operation.** It goes in `src/`: nothing `quilt add`ed, nothing
-  refreshed, nothing that can conflict on a bump.
-- **`quilt add` before touching a file that exists upstream.** An edit to a file not in the current
-  patch is invisible to `quilt refresh` — it stays in the working tree and the series does not carry
-  it. `series.bats` failing an unowned working-tree file is the only place that surfaces.
 - **A patch applying cleanly is not acceptance.** It can apply and still be redundant or already
   shipped upstream. Every bump re-justifies each patch: keep, shrink, merge or drop.
 - **A patch not covered by a test that fails without it does not ship.** "Has a test file" is not
@@ -136,16 +132,6 @@ representation**: local *is* the server, so there is no local fallback. Upstream
   one only when the data reaches the client over a surface the client actually reads.
 - **Fill a derived field at the publish boundary, never in a snapshot producer.** The snapshot merge
   keeps the cached tab, so a value stamped at build time is frozen or dropped.
-- **Value imports from a hub module go in a leaf under `src/shared/`,** and nothing crossing an
-  import cycle may be evaluated at module scope. One violation took out 411 upstream tests.
-
-  ```ts
-  import { SOME_CONST } from '../../shared/types' // hub: pulls the cycle in at module scope
-  const DEFAULTS = buildFrom(SOME_CONST) //           evaluated on import — this is the failure
-  import type { Worktree } from '../../shared/types' // type-only: erased, always safe
-  import { SOME_CONST } from '../../shared/some-leaf' // value: leaf module, no cycle
-  ```
-
 - **Nothing deployment-specific enters Orca's source.** Domains, workspace slugs and URL shapes live
   in the template string an operator writes, never in a constant a patch adds.
 - **The rename is a build-time overlay, never a patch.** `build/electron-builder.overlay.cjs` sets
