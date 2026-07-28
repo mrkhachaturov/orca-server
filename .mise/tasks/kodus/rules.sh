@@ -59,10 +59,8 @@ function apply_settings() {
   echo "settings requestChanges.minSeverity=critical"
 }
 
-# A uuid is minted by one Kodus instance and means nothing on another, so the
-# committed value is a hint until this instance confirms it. A failed lookup must
-# abort: an empty list is indistinguishable from "none of these exist", and the
-# create path would then duplicate every rule.
+# A uuid means nothing on another Kodus instance, so the committed value is a hint
+# until this one confirms it. A failed lookup must abort, or every rule is recreated.
 function known_uuids() {
   local out
   out=$(kodus rules view --repo-id "$1" --json) || {

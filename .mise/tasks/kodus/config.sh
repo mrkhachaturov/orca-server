@@ -3,7 +3,7 @@
 #MISE dir="{{config_root}}"
 
 # One wrong key invalidates the whole file, and Kodus says so only in its own logs.
-# Re-vendor the schema from kodus-ai's libs/common/schemas/codereview.json on upgrade.
+# Schema vendored from kodustech/kodus-ai at selfhosted-2.1.27, libs/common/schemas/codereview.json.
 
 set -Eeuo pipefail
 
