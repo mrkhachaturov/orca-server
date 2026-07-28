@@ -25,7 +25,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -169,6 +169,10 @@ import type {
+@@ -170,6 +170,10 @@ import type {
    WorkspaceSessionState,
    DirEntry
  } from '../../shared/types'
@@ -36,7 +36,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
  import {
    LOCAL_EXECUTION_HOST_ID,
-@@ -3094,12 +3098,17 @@ export class OrcaRuntimeService {
+@@ -3096,12 +3100,17 @@ export class OrcaRuntimeService {
      | 'minimaxGroupId'
      | 'minimaxUsageModels'
      | 'prBotAuthorOverrides'
@@ -67,7 +67,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import { normalizeTerminalCustomThemes } from '../../../shared/terminal-custom-themes'
  import { normalizeUiLanguage } from '../../../shared/ui-language'
  import { normalizeUsagePercentageDisplay } from '../../../shared/usage-percentage-display'
-@@ -3593,6 +3594,10 @@ function writeStoredSettings(
+@@ -3595,6 +3596,10 @@ function writeStoredSettings(
  }
  
  async function getRuntimeBackedStoredSettings(): Promise<GlobalSettings> {
@@ -78,7 +78,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
    const local = getStoredSettings()
    if (!requireActiveEnvironmentOrNull()) {
      return local
-@@ -3622,6 +3627,13 @@ async function getRuntimeBackedStoredSet
+@@ -3624,6 +3629,13 @@ async function getRuntimeBackedStoredSet
          result.settings.prBotAuthorOverrides
        )
      }

@@ -23,7 +23,7 @@ Index: orca-server/lib/orca/src/main/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/index.ts
 +++ orca-server/lib/orca/src/main/index.ts
-@@ -2061,7 +2061,13 @@ app.whenReady().then(async () => {
+@@ -2094,7 +2094,13 @@ app.whenReady().then(async () => {
          systemCodexHomePath: resolveHostCodexSessionSourceHome(store!.getSettings())
        }),
      buildAgentHookPtyEnv: () =>
@@ -89,7 +89,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -196,6 +196,7 @@ import {
+@@ -197,6 +197,7 @@ import {
  import type { SshConnectionState } from '../../shared/ssh-types'
  import { getPublicSshState } from './public-ssh-state'
  import { closeTerminalTabInWorkspaceSession } from '../../shared/workspace-session-terminal-tab-close'
@@ -97,7 +97,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import type {
    LinearCurrentIssueContextHints,
    LinearAttachResult,
-@@ -2446,6 +2447,38 @@ async function hasLocalWorktreeBaseRef(
+@@ -2448,6 +2449,38 @@ async function hasLocalWorktreeBaseRef(
    )
  }
  
@@ -136,7 +136,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  export class OrcaRuntimeService {
    private readonly runtimeId = randomUUID()
    private readonly startedAt = Date.now()
-@@ -2970,6 +3003,14 @@ export class OrcaRuntimeService {
+@@ -2972,6 +3005,14 @@ export class OrcaRuntimeService {
        buildAgentHookPtyEnv?: () => Record<string, string>
        getDesktopWindowStatus?: () => RuntimeDesktopWindowStatus
        agentSessionClaimSigner?: AgentSessionClaimSigner
@@ -151,7 +151,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      }
    ) {
      this.store = store
-@@ -3006,6 +3047,7 @@ export class OrcaRuntimeService {
+@@ -3008,6 +3049,7 @@ export class OrcaRuntimeService {
      this.onTerminalAgentStatus = deps?.onTerminalAgentStatus ?? null
      this.buildAgentHookPtyEnv = deps?.buildAgentHookPtyEnv ?? null
      this.getDesktopWindowStatusFn = deps?.getDesktopWindowStatus ?? (() => 'openable')
@@ -159,7 +159,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      this.prepareAiVaultSessionResumeFn = deps?.prepareAiVaultSessionResume ?? null
      this.agentSessionClaimSigner =
        deps?.agentSessionClaimSigner ?? createEphemeralAgentSessionClaimSigner(this.runtimeId)
-@@ -3439,6 +3481,21 @@ export class OrcaRuntimeService {
+@@ -3441,6 +3483,21 @@ export class OrcaRuntimeService {
      this.automationService = service
    }
  
@@ -205,7 +205,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -826,6 +826,9 @@ function createWebPreloadApi(): Partial<
+@@ -828,6 +828,9 @@ function createWebPreloadApi(): Partial<
      preflight: createPreflightApi(),
      notifications: createNotificationsApi(),
      rateLimits: createRateLimitsApi(),
@@ -215,7 +215,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
      minimaxCredentials: createMiniMaxCredentialsApi(),
      grokAccounts: createGrokAccountsApi(),
      codexAccounts: createAccountsApi(),
-@@ -2958,6 +2961,52 @@ function createNotificationsApi(): NonNu
+@@ -2960,6 +2963,52 @@ function createNotificationsApi(): NonNu
    }
  }
  

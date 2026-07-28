@@ -129,7 +129,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-con
  } from '@/components/sidebar/WorktreeOpenInMenu'
  
  type SourceControlEntryContextMenuProps = {
-@@ -63,16 +64,11 @@ export function SourceControlEntryContex
+@@ -72,16 +73,11 @@ export function SourceControlEntryContex
    }, [absolutePath, currentWorktreeId, onRevealInExplorer])
  
    const handleOpenInExternal = useCallback(
@@ -148,7 +148,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-con
      },
      [absolutePath, connectionId]
    )
-@@ -105,16 +101,10 @@ export function SourceControlEntryContex
+@@ -121,16 +117,10 @@ export function SourceControlEntryContex
                return (
                  <ContextMenuItem
                    key={entry.id}
@@ -1203,7 +1203,7 @@ Index: orca-server/lib/orca/src/shared/types.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/shared/types.ts
 +++ orca-server/lib/orca/src/shared/types.ts
-@@ -2574,6 +2574,11 @@ export type OpenInApplication = {
+@@ -2590,6 +2590,11 @@ export type OpenInApplication = {
    id: string
    label: string
    command: string

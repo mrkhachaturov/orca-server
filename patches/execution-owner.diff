@@ -62,7 +62,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -316,6 +316,7 @@ import {
+@@ -317,6 +317,7 @@ import {
    sharesResolvedWorktreeLineageBoundary
  } from '../../shared/resolved-worktree-lineage'
  import { folderWorkspaceToWorktree } from '../../shared/folder-workspace-worktree'
@@ -70,7 +70,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import type {
    FolderWorkspacePathStatus,
    FolderWorkspacePathStatusRequest
-@@ -771,6 +772,7 @@ import {
+@@ -772,6 +773,7 @@ import {
  import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
  import { isENOENT } from '../ipc/filesystem-auth'
  import {
@@ -78,7 +78,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    resolveFloatingTerminalCwd as resolveFloatingTerminalCwdOnHost,
    grantFloatingWorkspaceDirectory as grantFloatingWorkspaceDirectoryOnHost,
    type FloatingWorkspaceDirectoryStore
-@@ -7185,6 +7187,19 @@ export class OrcaRuntimeService {
+@@ -7187,6 +7189,19 @@ export class OrcaRuntimeService {
      worktree: ResolvedWorktree
      connectionId?: string
    }> {
@@ -98,7 +98,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      const folderScope = await this.resolveFolderWorkspaceLaunchScope(worktreeSelector)
      if (folderScope?.folderWorkspace) {
        return {
-@@ -15237,6 +15252,12 @@ export class OrcaRuntimeService {
+@@ -15239,6 +15254,12 @@ export class OrcaRuntimeService {
      await grantFloatingWorkspaceDirectoryOnHost(this.floatingWorkspaceDirectoryStore(), dirPath)
    }
  
@@ -111,7 +111,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    async browseServerDir(pathValue: string): Promise<{ resolvedPath: string; entries: DirEntry[] }> {
      const dirPath = resolveServerBrowsePath(pathValue)
      const dirStat = await stat(dirPath)
-@@ -21679,7 +21700,17 @@ export class OrcaRuntimeService {
+@@ -21686,7 +21707,17 @@ export class OrcaRuntimeService {
          // Why: `orca serve` exposes the local runtime without a renderer
          // window. Renderer-backed Codex terminals are preferred for the app,
          // but headless CLI users still need a usable terminal handle.
@@ -130,7 +130,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  
      if (shouldCreateInBackground) {
        if (!this.ptyController?.spawn) {
-@@ -24079,7 +24110,12 @@ export class OrcaRuntimeService {
+@@ -24086,7 +24117,12 @@ export class OrcaRuntimeService {
    }
  
    private folderWorkspaceToResolvedWorktree(folderWorkspace: FolderWorkspace): ResolvedWorktree {
@@ -336,7 +336,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
  
    const closeFloatingItems = useCallback(
      (visibleIds: string[]) => {
-@@ -1535,6 +1605,18 @@ export function FloatingTerminalPanel({
+@@ -1550,6 +1620,18 @@ export function FloatingTerminalPanel({
                  if (!source) {
                    return
                  }
@@ -355,7 +355,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
                  createBrowserTab(FLOATING_TERMINAL_WORKTREE_ID, source.url, {
                    ...buildDuplicatedBrowserTabOptions(source),
                    targetGroupId: activeGroup?.id,
-@@ -1555,6 +1637,26 @@ export function FloatingTerminalPanel({
+@@ -1570,6 +1652,26 @@ export function FloatingTerminalPanel({
            />
          </div>
  
@@ -502,7 +502,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/terminal-pane/pty-connec
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
 +++ orca-server/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
-@@ -237,6 +237,7 @@ import {
+@@ -238,6 +238,7 @@ import {
    getExecutionHostIdForWorktree,
    getSettingsForWorktreeRuntimeOwner
  } from '@/lib/worktree-runtime-owner'
@@ -510,7 +510,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/terminal-pane/pty-connec
  import { CLIENT_PLATFORM } from '@/lib/new-workspace'
  import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
  import { resolveAgentStatusTerminalTitle } from '@/lib/agent-status-terminal-title'
-@@ -3231,6 +3232,7 @@ export function connectPanePty(
+@@ -3232,6 +3233,7 @@ export function connectPanePty(
      : mirroredRuntimeEnvironmentId
        ? mirroredRuntimeEnvironmentId
        : null
@@ -518,7 +518,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/terminal-pane/pty-connec
    // Why: an SSH host nested under a HUB is execution identity, not permission for the paired client to dial that host.
    const connectionId =
      !terminalOwnerUnresolved && runtimeEnvironmentId === null
-@@ -3524,7 +3526,15 @@ export function connectPanePty(
+@@ -3525,7 +3527,15 @@ export function connectPanePty(
        )
      : runtimeEnvironmentId
        ? createRemoteRuntimePtyTransport(runtimeEnvironmentId, transportOptions)
@@ -933,7 +933,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        pickFloatingMarkdownDocument: () => Promise.resolve(null),
        // Why: the web tile has no native OS dialog — the picker is the in-app
        // host-fs browser (RemoteFileBrowser), so this native entry stays a no-op.
-@@ -4052,11 +4064,38 @@ async function resolveRuntimeWorktreeByP
+@@ -4054,11 +4066,38 @@ async function resolveRuntimeWorktreeByP
      .filter((entry) => entry.relativePath !== null)
      .sort((a, b) => b.worktree.path.length - a.worktree.path.length)[0]
    if (!match) {

@@ -31,6 +31,14 @@ Orca v9.99.999
 
 ## Unreleased
 
+Orca v1.4.159
+
+### Changed
+
+- Update to Orca v1.4.159. All thirteen patches were re-justified against the
+  new tag and all thirteen were kept: upstream shipped nothing that closes any
+  of the capabilities they carry.
+
 ## [4.158.0] - 2026-07-28
 
 Orca v1.4.158

@@ -127,7 +127,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -117,6 +117,7 @@ import type {
+@@ -118,6 +118,7 @@ import type {
    GitHubCreateIssueFields,
    GitHubOwnerRepo,
    GlobalSettings,
@@ -135,7 +135,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    PersistedUIState,
    Project,
    ProjectUpdateArgs,
-@@ -766,6 +767,11 @@ import {
+@@ -767,6 +768,11 @@ import {
  import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
  import { isENOENT } from '../ipc/filesystem-auth'
  import {
@@ -147,7 +147,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    createSetupRunnerScript,
    getDefaultTabCommandTrustContent,
    getDefaultTabsLaunch,
-@@ -15196,6 +15202,32 @@ export class OrcaRuntimeService {
+@@ -15198,6 +15204,32 @@ export class OrcaRuntimeService {
      return scanNestedRepos({ path, options: { timeoutMs: 15_000 } })
    }
  
@@ -204,7 +204,7 @@ Index: orca-server/lib/orca/src/preload/api-types.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/preload/api-types.ts
 +++ orca-server/lib/orca/src/preload/api-types.ts
-@@ -962,6 +962,10 @@ export type AppApi = {
+@@ -963,6 +963,10 @@ export type AppApi = {
    /** Opens a native directory picker and authorizes the selected directory
     *  for Floating Workspace markdown file creation. */
    pickFloatingWorkspaceDirectory: () => Promise<string | null>
@@ -219,7 +219,7 @@ Index: orca-server/lib/orca/src/preload/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/preload/index.ts
 +++ orca-server/lib/orca/src/preload/index.ts
-@@ -473,6 +473,8 @@ const api = {
+@@ -475,6 +475,8 @@ const api = {
        ipcRenderer.invoke('app:pickFloatingMarkdownDocument'),
      pickFloatingWorkspaceDirectory: (): Promise<string | null> =>
        ipcRenderer.invoke('app:pickFloatingWorkspaceDirectory'),
