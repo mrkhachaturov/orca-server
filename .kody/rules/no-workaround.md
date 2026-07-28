@@ -1,7 +1,7 @@
 ---
 title: "A patch must wire up a building block, never work around one"
 scope: "pull-request"
-path: ["src/**/*.ts", "src/**/*.tsx"]
+path: ["src/**/*.ts", "src/**/*.tsx", "patches/**"]
 severity_min: "critical"
 languages: ["jsts"]
 buckets: ["error-handling"]

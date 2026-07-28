@@ -45,6 +45,11 @@ function api_scope() {
 # Without a uuid line there is nowhere to record identity, so every run would duplicate.
 function stamp_uuid() {
   local file=$1 uuid=$2
+  # jq prints "null" for a missing field, which would stamp and then never match.
+  [ -n "$uuid" ] && [ "$uuid" != null ] || {
+    echo "create returned no uuid for $file" >&2
+    return 1
+  }
   grep -q '^uuid:' "$file" || {
     echo "$file has no uuid field — add \`uuid: \"\"\` to its frontmatter" >&2
     return 1
