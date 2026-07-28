@@ -17,9 +17,9 @@
 1. Check that `CHANGELOG.md` lists the changes under `## Unreleased`, and that the Orca version on the line under the
    heading is the one `lib/orca` is pinned to.
 2. Actions → Draft release → Run workflow, with the Orca tag, for example `v1.4.156`.
-3. CI checks that the submodule is on that tag, applies the series, runs the integrity tests, builds the AppImage, and
-   uploads it to a draft release. The release body is the `## Unreleased` section, cut out of the changelog by the
-   workflow.
+3. CI checks that the submodule is on that tag, applies the series, runs the integrity tests, builds the AppImage, boots
+   it and fetches the web client, then uploads it to a draft release. The release body is the `## Unreleased` section,
+   cut out of the changelog by the workflow.
 4. Read the draft. Publish it if the notes and the asset are right.
 5. In `CHANGELOG.md`, rename `## Unreleased` to the released version with today's date, and open a fresh `## Unreleased`
    above it.
@@ -52,9 +52,10 @@ Patches labelled `upstream-fixed` in the issue tracker are the ones a bump can d
 
 ## Testing
 
-`mise run test:series` guards the series and runs in CI on every change to the tree or the tooling. It is the one suite
-that has to stay green, because a stale patch is invisible in a diff. It also enforces the two-owner boundary: every
-file in the submodule tree belongs to a patch or to the overlay, and none belongs to both.
+`mise run test:series` guards the series and runs in CI on every change to the tree, to `test/`, or to the tasks that
+assemble and check it. It is the one suite that has to stay green, because a stale patch is invisible in a diff. It also
+enforces the two-owner boundary: every file in the submodule tree belongs to a patch or to the overlay, and none belongs
+to both.
 
 `mise run test:unit` runs the acceptance tests the series and the overlay carry. `mise run test:scope` runs upstream's
 own tests beside every file either of them touches, which catches a patch breaking tests it never names. Both apply to
@@ -63,7 +64,13 @@ the patched tree, both need `pnpm install` inside `lib/orca` first, and both run
 `mise run test:e2e` boots the built AppImage and fetches the web client. Linux only, and it needs a build to exist.
 
 `mise run check` is every gate in one command — the suites above except `test:e2e`, plus `test:types` and `lint`.
-`mise run ci` adds the AppImage build after it. The `pre-push` hook is narrower: `test:series` and `lint:docs` only.
+`mise run ci` adds the AppImage build after it. The `pre-push` hook is narrower: `test:series`, `lint:docs` and a Kodus
+review that stops the push on a critical finding.
+
+The AppImage is built on pull requests. The push to `main` rebuilds only when the image definition itself changed —
+`Dockerfile`, `docker-bake.hcl`, `.dockerignore`, `build/` or the build task — because a squash lands the tree the pull
+request already built. That rests on the branch ruleset requiring a pull request and requiring the branch to be current;
+relaxing either setting leaves the merged tree unproven.
 
 ## Documentation
 

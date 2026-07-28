@@ -34,6 +34,7 @@ jobs:
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true && startsWith(github.head_ref, 'update/'))
 
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -108,6 +109,16 @@ jobs:
       # No platform argument: the task defaults to the host, which is already
       # the runner the matrix chose.
       - run: mise run build "$PATCH"
+
+      # The artifact that ships has to boot: e2e is the only check of the launch
+      # contract, and build.yaml's build job runs on pull requests only.
+      - uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          # The runtime list docs/install.md publishes; this job, build.yaml and
+          # that doc must agree.
+          packages: libgtk-3-0 libnss3 libgbm1 libasound2t64 libatk-bridge2.0-0 libatspi2.0-0 libdrm2 libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 libxss1 xvfb xauth dbus-x11
+          version: 1.0
+      - run: mise run test:e2e
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

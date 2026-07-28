@@ -23,32 +23,82 @@ jobs:
       contents: read # actions/checkout
       pull-requests: read # paths-filter reads the PR file list over the API
     outputs:
-      ci: ${{ steps.filter.outputs.ci }}
+      artifact: ${{ steps.filter.outputs.artifact }}
+      image: ${{ steps.filter.outputs.image }}
       series: ${{ steps.filter.outputs.series }}
+      tests: ${{ steps.filter.outputs.tests }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         id: filter
+        # Each list is what its job reads. `mise.toml` pins bats for series, jq
+        # for the build and node for tests; `.node-version` is read by nothing
+        # but `bump`.
         # No docs filter: the lint job below is deliberately unfiltered.
         with:
           filters: |
-            ci:
-              - ".github/workflows/**"
-              - ".mise/**"
+            artifact:
+              - "lib/**"
+              - "patches/**"
+              - "src/**"
+              - "build/**"
+              - "Dockerfile"
+              - ".dockerignore"
+              - "docker-bake.hcl"
               - "mise.toml"
               - "mise.lock"
-              - "test/**"
+              - ".mise/lib.sh"
+              - ".mise/tasks/build.sh"
+              - ".mise/tasks/up.sh"
+              - ".mise/tasks/overlay.sh"
+            # The image definition: nothing but a build can check these, so they
+            # are the one thing the push to main still builds.
+            image:
+              - "build/**"
+              - "Dockerfile"
+              - ".dockerignore"
+              - "docker-bake.hcl"
+              - ".mise/tasks/build.sh"
             series:
               - "lib/**"
               - "patches/**"
               - "src/**"
-              - "Dockerfile"
-              - ".dockerignore"
-              - "docker-bake.hcl"
-              - "build/**"
-              - ".node-version"
+              - "test/**"
+              - ".gitmodules"
+              - "mise.toml"
+              - "mise.lock"
+              - ".mise/tasks/test/series.sh"
+              - ".mise/tasks/overlay.sh"
+            tests:
+              - "lib/**"
+              - "patches/**"
+              - "src/**"
+              - "mise.toml"
+              - "mise.lock"
+              - "kodus-config.yml"
+              - ".kody/**"
+              - ".mise/lib.sh"
+              - ".mise/tasks/test/types.sh"
+              - ".mise/tasks/test/unit.sh"
+              - ".mise/tasks/test/scope.sh"
+              - ".mise/tasks/kodus/config.sh"
+              - ".mise/tasks/up.sh"
+              - ".mise/tasks/overlay.sh"
+            e2e:
+              - ".mise/tasks/test/e2e.sh"
+            # Only this file defines the jobs below; release.yaml and update.yaml
+            # cannot reach them, and flint lints all three on every event.
+            workflows:
+              - ".github/workflows/build.yaml"
+      # Which filters matched, in the log: a job that skipped is otherwise
+      # indistinguishable from one whose filter never fired.
+      - env:
+          FILTERS: ${{ toJSON(steps.filter.outputs) }}
+        run: printf '%s\n' "$FILTERS"
 
   # Squash merges take the PR title as the commit subject, so it is the only
   # message that reaches main — and no git hook ever sees it. This is the same
@@ -87,8 +137,11 @@ jobs:
   series:
     name: Patch series integrity
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: changes
-    if: needs.changes.outputs.series == 'true' || needs.changes.outputs.ci == 'true'
+    if: >-
+      needs.changes.outputs.series == 'true'
+      || needs.changes.outputs.workflows == 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -106,8 +159,17 @@ jobs:
   tests:
     name: Acceptance tests
     runs-on: ubuntu-latest
+    # test:scope alone runs 7-8 minutes; the rest of the job is under one.
+    timeout-minutes: 30
     needs: [changes, series]
-    if: needs.changes.outputs.series == 'true' || needs.changes.outputs.ci == 'true'
+    # `!cancelled()` defeats the implicit success() gate, which would skip this
+    # whenever `series` skips; both dependencies are then checked by name.
+    if: >-
+      !cancelled()
+      && needs.changes.result == 'success'
+      && (needs.series.result == 'success' || needs.series.result == 'skipped')
+      && (needs.changes.outputs.tests == 'true'
+      || needs.changes.outputs.workflows == 'true')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -134,11 +196,26 @@ jobs:
       - run: mise run test:types
       - run: mise run test:unit
       - run: mise run test:scope
+      # Here rather than in lint: it validates against the schema with ajv from
+      # lib/orca's node_modules, which the install above provides.
+      - run: mise run kodus:config
 
   build:
     name: Build the AppImage (${{ matrix.platform }})
+    # 5-12 minutes in practice; the spread is Ubuntu's apt mirror.
+    timeout-minutes: 45
     needs: [changes, series]
-    if: needs.changes.outputs.series == 'true' || needs.changes.outputs.ci == 'true'
+    # A squash lands the tree the pull request already built, so a push rebuilds
+    # only what no other job can check. Guards as on `tests` above.
+    if: >-
+      !cancelled()
+      && needs.changes.result == 'success'
+      && (needs.series.result == 'success' || needs.series.result == 'skipped')
+      && (github.event_name == 'pull_request'
+      || needs.changes.outputs.image == 'true')
+      && (needs.changes.outputs.artifact == 'true'
+      || needs.changes.outputs.e2e == 'true'
+      || needs.changes.outputs.workflows == 'true')
     strategy:
       fail-fast: false
       matrix:
@@ -167,7 +244,8 @@ jobs:
       # No platform argument: the task defaults to the host, which is already
       # the runner the matrix chose.
       - run: mise run build
-      # The runtime list docs/install.md publishes; keep the two in step.
+      # The runtime list docs/install.md publishes; this job, release.yaml and
+      # that doc must agree.
       - uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           # libasound2t64, not libasound2: noble's t64 transition left the old
@@ -195,6 +273,11 @@ jobs:
     needs: [changes, title, lint, series, tests, build]
     if: always()
     steps:
+      # Every dependency's result, so a red required check names the culprit in
+      # its own log.
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: printf '%s\n' "$RESULTS"
       - name: A job failed or was cancelled
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
