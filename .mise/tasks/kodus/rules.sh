@@ -72,8 +72,9 @@ function known_uuids() {
 
 function main() {
   local slug id known fm rule_body title scope path severity uuid out
-  # Both remote shapes, with or without the .git suffix.
-  slug=$(git remote get-url origin | sed -e 's|\.git$||' -e 's|/$||' -e 's|.*[:/]\([^/]*/[^/]*\)$|\1|')
+  # Strip scheme, user and host only: a GitLab group can nest, so the whole path
+  # after the host is the slug.
+  slug=$(git remote get-url origin | sed -E -e 's#^[a-z]+://##' -e 's#^[^/@]+@##' -e 's#^[^/:]+[:/]##' -e 's#\.git$##' -e 's#/$##')
   id=$(repo_id "$slug")
   [ -n "$id" ] || {
     echo "$slug is not a repository Kodus knows — add it with \`kodus config -r .\`" >&2
