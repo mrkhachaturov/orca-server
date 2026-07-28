@@ -59,8 +59,21 @@ function apply_settings() {
   echo "settings requestChanges.minSeverity=critical"
 }
 
+# A uuid is minted by one Kodus instance and means nothing on another, so the
+# committed value is a hint until this instance confirms it. A failed lookup must
+# abort: an empty list is indistinguishable from "none of these exist", and the
+# create path would then duplicate every rule.
+function known_uuids() {
+  local out
+  out=$(kodus rules view --repo-id "$1" --json) || {
+    echo "cannot list existing rules — refusing to run, every rule would be recreated" >&2
+    return 1
+  }
+  printf '%s' "$out" | jq -r '.[].uuid'
+}
+
 function main() {
-  local slug id fm rule_body title scope path severity uuid out
+  local slug id known fm rule_body title scope path severity uuid out
   # Both remote shapes, with or without the .git suffix.
   slug=$(git remote get-url origin | sed -e 's|\.git$||' -e 's|/$||' -e 's|.*[:/]\([^/]*/[^/]*\)$|\1|')
   id=$(repo_id "$slug")
@@ -69,6 +82,7 @@ function main() {
     return 1
   }
   echo "repository $slug -> $id"
+  known=$(known_uuids "$id")
 
   for file in "$RULES_DIR"/*.md; do
     fm=$(frontmatter "$file")
@@ -79,7 +93,7 @@ function main() {
     severity=$(field severity_min "$fm")
     uuid=$(field uuid "$fm")
 
-    if [ -n "$uuid" ]; then
+    if [ -n "$uuid" ] && printf '%s\n' "$known" | grep -qxF "$uuid"; then
       kodus rules update --uuid "$uuid" --repo-id "$id" --title "$title" \
         --rule "$rule_body" --severity "$severity" --scope "$scope" --path "$path" \
         --json > /dev/null
