@@ -14,14 +14,16 @@
 
 ## Releasing
 
-1. Check that `CHANGELOG.md` lists the changes under `## Unreleased`, and that the Orca version on the line under the
+1. Rebase the branch on `main` before running any gate. Branch protection refuses a merge from a
+   branch that is behind, and the rebase resets every check — gate first and you pay for CI twice.
+2. Check that `CHANGELOG.md` lists the changes under `## Unreleased`, and that the Orca version on the line under the
    heading is the one `lib/orca` is pinned to.
-2. Actions → Draft release → Run workflow, with the Orca tag, for example `v1.4.156`.
-3. CI checks that the submodule is on that tag, applies the series, runs the integrity tests, builds the AppImage, and
+3. Actions → Draft release → Run workflow, with the Orca tag, for example `v1.4.156`.
+4. CI checks that the submodule is on that tag, applies the series, runs the integrity tests, builds the AppImage, and
    uploads it to a draft release. The release body is the `## Unreleased` section, cut out of the changelog by the
    workflow.
-4. Read the draft. Publish it if the notes and the asset are right.
-5. In `CHANGELOG.md`, rename `## Unreleased` to the released version with today's date, and open a fresh `## Unreleased`
+5. Read the draft. Publish it if the notes and the asset are right.
+6. In `CHANGELOG.md`, rename `## Unreleased` to the released version with today's date, and open a fresh `## Unreleased`
    above it.
 
 Our version drops Orca's major and keeps the two components that move: `v1.4.156` releases as `v4.156.0`. The last slot
