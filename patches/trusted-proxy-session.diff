@@ -85,7 +85,7 @@ Index: orca-server/lib/orca/src/main/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/index.ts
 +++ orca-server/lib/orca/src/main/index.ts
-@@ -1492,6 +1492,8 @@ type ServeOptions = {
+@@ -1525,6 +1525,8 @@ type ServeOptions = {
    mobilePairing: boolean
    recipeJson: boolean
    projectRoot: string | null
@@ -94,7 +94,7 @@ Index: orca-server/lib/orca/src/main/index.ts
  }
  
  function getServeOptions(argv = process.argv): ServeOptions {
-@@ -1519,7 +1521,8 @@ function getServeOptions(argv = process.
+@@ -1552,7 +1554,8 @@ function getServeOptions(argv = process.
      noPairing: argv.includes('--serve-no-pairing'),
      mobilePairing: argv.includes('--serve-mobile-pairing'),
      recipeJson: argv.includes('--serve-recipe-json'),
@@ -104,7 +104,7 @@ Index: orca-server/lib/orca/src/main/index.ts
    }
  }
  
-@@ -2325,7 +2328,10 @@ app.whenReady().then(async () => {
+@@ -2358,7 +2361,10 @@ app.whenReady().then(async () => {
            preferPinnedWsPort: true
          }
        : {}),
@@ -474,7 +474,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import { WebRuntimeClient } from './web-runtime-client'
  import { RuntimeRpcCallQueuePool } from '../../../shared/runtime-rpc-call-queue'
  import {
-@@ -3278,10 +3282,46 @@ async function getRemoteRuntimeStatus():
+@@ -3280,10 +3284,46 @@ async function getRemoteRuntimeStatus():
    return callRuntimeResult<RuntimeStatus>('status.get', undefined, 15_000)
  }
  

@@ -142,7 +142,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
          }
          writeJson(UI_STORAGE_KEY, mergeWebUIState(readLocalWebUIState(), ui))
        },
-@@ -738,6 +739,7 @@ function createWebPreloadApi(): Partial<
+@@ -740,6 +741,7 @@ function createWebPreloadApi(): Partial<
        get: (hostId) => Promise.resolve(getStoredWorkspaceSession(hostId)),
        set: async (session, hostId) => {
          writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(session))
@@ -150,7 +150,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        },
        patch: async (patch: WorkspaceSessionPatch, hostId) => {
          writeJson(
-@@ -747,12 +749,14 @@ function createWebPreloadApi(): Partial<
+@@ -749,12 +751,14 @@ function createWebPreloadApi(): Partial<
              ...patch
            })
          )
@@ -165,7 +165,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        }
      },
      onboarding: {
-@@ -3820,12 +3824,67 @@ function getStoredWorkspaceSession(hostI
+@@ -3822,12 +3826,67 @@ function getStoredWorkspaceSession(hostI
    // Why: replaying browser-local terminal handles first creates stale remote PTYs; mirror host session-tabs instead.
    return sanitizeWebRuntimeWorkspaceSession({
      ...getDefaultWorkspaceSession(),

@@ -157,7 +157,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -774,7 +774,19 @@ function createWebPreloadApi(): Partial<
+@@ -776,7 +776,19 @@ function createWebPreloadApi(): Partial<
          }))
      },
      memory: {
