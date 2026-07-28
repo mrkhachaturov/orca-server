@@ -1,3 +1,6 @@
+<!-- @kody-ignore — the invariants below ship as explicit rules under .kody/rules/, one per
+     file. Auto-import would collapse them into a single LLM-rewritten rule competing with those. -->
+
 # orca-server
 
 Upstream [Orca](https://github.com/stablyai/orca) (Electron, MIT) pinned as the `lib/orca`
@@ -37,6 +40,8 @@ capability is still needed; that is the review.
 | Build the AppImage | `mise run build [--platform linux/arm64]` |
 | Boot it and fetch the web client | `mise run test:e2e` — Linux host of the artifact's arch |
 | Move the pin and restack the series | `VERSION=<tag> mise run bump` |
+| Push the review rules to Kodus | `mise run kodus:rules` |
+| Validate `kodus-config.yml` | `mise run kodus:config` |
 
 Every gate that reads the assembled tree declares `depends = ["up"]` except `test:series`, which
 pops and pushes the series itself. `check` sequences them: `test:series` alone, then `up`, then the
@@ -50,7 +55,8 @@ not the `amd64`/`arm64` the platform flag takes.
 `hk.pkl` owns the git lifecycle and installs itself from mise's `postinstall`. Pre-commit: hygiene,
 `main` refused, diff-scoped flint, `mise run overlay --check`; it runs `fix = true`, so shfmt, rumdl,
 ryl, taplo and `flint-setup` rewrite what you are committing. Commit-msg: conventional commit.
-Pre-push: `test:series`, `lint:docs`. `hk run check` and `hk run fix` fire only by name. Bypass one
+Pre-push: `test:series`, `lint:docs`, and a Kodus review of the branch that stops the push on a
+critical finding. `hk run check` and `hk run fix` fire only by name. Bypass one
 command with `HK=0`. Do not re-run by hand what a hook already runs.
 
 Silence a lint finding inline, at the line it applies to (`# shellcheck disable=SCxxxx`,
