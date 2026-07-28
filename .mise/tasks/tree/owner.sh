@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE alias="owner"
 #MISE description="Name the owner of a path: overlay, patch, or upstream"
 #MISE dir="{{config_root}}"
 
