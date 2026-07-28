@@ -37,6 +37,9 @@ jobs:
             ci:
               - ".github/workflows/**"
               - ".mise/**"
+              # Claude Code hooks: invoked by path from .claude/settings.json, never by a gate.
+              # They cannot reach the artifact, and flint lints them in the unfiltered lint job.
+              - "!.mise/tasks/hooks/**"
               - "mise.toml"
               - "mise.lock"
               - "test/**"
