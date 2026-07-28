@@ -2,9 +2,8 @@
 #MISE description="SessionStart: publish pin, branch, series and graph state"
 #MISE dir="{{config_root}}"
 
-# Facts prose cannot carry, because they change between sessions. A graph's
-# head_sha reads live git, so an index built before the pin moved still reports
-# the new tag — the staleness has to be computed, not asserted.
+# A graph's head_sha reads live git, so an index built before the pin moved still reports
+# the new tag. Staleness is computed here, not asserted.
 
 set -uo pipefail
 

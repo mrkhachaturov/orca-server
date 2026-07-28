@@ -6,7 +6,8 @@ description: >-
   reindex the pin graphs. Merging the pull request is what triggers the release workflow, so the
   order is not optional.
 when_to_use: >-
-  After `orca-patch-verify` is green on a bump branch, or whenever a release has to go out.
+  When a bump branch is ready to release, before the final gate — step 1 rebases, and a rebase
+  invalidates any gate that ran before it. Run `orca-patch-verify` on the rebased head, not before.
   Triggers: "release it", "publish the release", "ship v4.x", "merge the bump", "cut a release",
   "finish the bump", "back to main after the release".
 ---
@@ -23,25 +24,26 @@ Nothing below is meant to be run verbatim.
 | Placeholder | Means | Read it from |
 | --- | --- | --- |
 | `NNN` | Orca's minor, the only digits that move | `git -C lib/orca describe --tags` → `v1.4.NNN` |
+| `P` | our patch slot: `0` for a new Orca, `1`+ for a re-release | the workflow's `patch` input |
 | `PR` | the pull request number | `gh pr list` |
 | `YYYY-MM-DD` | today, in the changelog heading | the date of the release |
 
-Our version drops Orca's major and keeps the two that move: Orca `v1.4.NNN` ships as `v4.NNN.0`.
-The last slot is ours — the same Orca with a changed series is `v4.NNN.1`, which the workflow
-produces from the `patch` input. To read a version backwards, take the first two fields and prepend
-`1.`.
+Our version drops Orca's major and keeps the two that move: Orca `v1.4.NNN` ships as `v4.NNN.P`.
+The last slot is ours — the same Orca with a changed series is `v4.NNN.1`, `v4.NNN.2` and so on,
+which the workflow produces from the `patch` input. To read a version backwards, take the first two
+fields and prepend `1.`.
 
-## 1. Rebase before you gate
+## 1. Rebase, then gate the rebased head
 
 ```bash
 git rev-list --count HEAD..origin/main    # 0, or rebase first
 gh pr update-branch --rebase              # for an open pull request
 ```
 
-**Why first:** a rebase resets every CI check, and the ruleset refuses a merge from a branch that is
-behind. Gating before rebasing runs the whole matrix twice, both AppImage builds included. The
-`gate-freshness` hook refuses a gate run from a stale branch, but the check is cheap to make by
-hand.
+Then run `orca-patch-verify`. A rebase rewrites the head, so any gate that ran before it proves
+nothing about what will merge — CI re-runs on the new head either way, and the ruleset refuses a
+merge from a branch that is behind. Gating first means paying for the whole matrix twice, both
+AppImage builds included.
 
 ## 2. Check the changelog
 
@@ -78,21 +80,21 @@ finding gets shipped. Reply with the reasoning, react 👎 on a false positive, 
 ## 4. Read the draft, then publish
 
 ```bash
-gh release view v4.NNN.0 --json tagName,isDraft,body,assets
+gh release view v4.NNN.P --json tagName,isDraft,body,assets
 ```
 
 Pass: body is the `## Unreleased` section, and there are **two** assets —
-`orca-server-4.NNN.0-x86_64.AppImage` and `orca-server-4.NNN.0-aarch64.AppImage`. Both are release
+`orca-server-4.NNN.P-x86_64.AppImage` and `orca-server-4.NNN.P-aarch64.AppImage`. Both are release
 targets; one asset means a build was skipped.
 
 ```bash
-gh release edit v4.NNN.0 --draft=false --latest
+gh release edit v4.NNN.P --draft=false --latest
 ```
 
 ## 5. Roll the changelog
 
-Rename `## Unreleased` to `## [4.NNN.0] - YYYY-MM-DD` and open a fresh empty `## Unreleased` above it.
-Its own commit, `docs: roll the changelog for v4.NNN.0`, on a branch — `hk` refuses a commit on
+Rename `## Unreleased` to `## [4.NNN.P] - YYYY-MM-DD` and open a fresh empty `## Unreleased` above it.
+Its own commit, `docs: roll the changelog for v4.NNN.P`, on a branch — `hk` refuses a commit on
 `main`. The heavy CI jobs skip on a changelog-only diff; `Gate` still reports.
 
 ## 6. Return to main

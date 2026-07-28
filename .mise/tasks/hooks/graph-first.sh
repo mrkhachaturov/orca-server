@@ -2,10 +2,8 @@
 #MISE description="PreToolUse: name the graphs when a search targets Orca's tree"
 #MISE dir="{{config_root}}"
 
-# A nudge, never a refusal. grep stays correct for a git rev no graph holds, for
-# non-symbol text, and for a tree that is not indexed yet — all three are real.
-#
-# Reads the PreToolUse payload on stdin. Silence means allow with no note.
+# A nudge, never a refusal: grep stays right for a git rev, non-symbol text and an
+# unindexed tree.
 
 set -uo pipefail
 

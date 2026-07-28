@@ -2,10 +2,8 @@
 #MISE description="PreToolUse: route graph indexing through the cbm tasks"
 #MISE dir="{{config_root}}"
 
-# Scoped by its matcher to the indexing MCP tool, so it always denies. Every cbm
-# task indexes --mode full, and cbm-patched runs the overlay itself and refuses a
-# partly applied series. A direct call skips both and yields a graph that is not
-# comparable to its siblings.
+# Always denies: its matcher is the indexing MCP tool. The cbm tasks index --mode full
+# and cbm-patched refuses a partly applied series; a direct call skips both.
 
 set -uo pipefail
 

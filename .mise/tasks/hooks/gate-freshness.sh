@@ -2,17 +2,14 @@
 #MISE description="PreToolUse: refuse a gate run from a branch behind main"
 #MISE dir="{{config_root}}"
 
-# Branch protection refuses a merge from a branch that is behind, and the rebase
-# resets every check — gating first pays for the whole matrix twice.
-#
-# Reads the PreToolUse payload on stdin. Silence means allow.
+# Gating before a rebase pays for the whole matrix twice: the rebase resets every check.
 
 set -uo pipefail
 
 command=$(jq -r '.tool_input.command // ""' 2> /dev/null)
 
 case $command in
-  *"mise run check"* | *"mise run ci"* | *"mise run test:"*) ;;
+  *"mise run check"* | *"mise run ci"* | *"mise run test:"* | *"hk run check"* | *"hk run fix"*) ;;
   *) exit 0 ;;
 esac
 
