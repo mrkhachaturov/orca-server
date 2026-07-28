@@ -30,8 +30,7 @@ function globs() {
   printf '%s\n' "$1" | tr -d '[]"' | tr -d ' '
 }
 
-# The file template says pull-request; the API wants a space. Anything else is a typo
-# that would otherwise become a file-scoped rule in silence.
+# The frontmatter spells it pull-request; the API wants a space.
 function api_scope() {
   case $1 in
     pull-request) printf 'pull request' ;;
@@ -43,8 +42,7 @@ function api_scope() {
   esac
 }
 
-# Replaces whatever the uuid line holds. Without one there is nowhere to record the
-# rule's identity, and every run would create a duplicate.
+# Without a uuid line there is nowhere to record identity, so every run would duplicate.
 function stamp_uuid() {
   local file=$1 uuid=$2
   grep -q '^uuid:' "$file" || {
@@ -55,8 +53,7 @@ function stamp_uuid() {
   rm -f "$file.bak"
 }
 
-# The schema has isRequestChangesActive but no threshold, so this is the only setting
-# kodus-config.yml cannot carry.
+# The schema has isRequestChangesActive but no threshold — the one setting the file can't carry.
 function apply_settings() {
   kodus config remote set . review.requestChanges.minSeverity critical > /dev/null
   echo "settings requestChanges.minSeverity=critical"

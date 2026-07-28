@@ -55,7 +55,8 @@ not the `amd64`/`arm64` the platform flag takes.
 `hk.pkl` owns the git lifecycle and installs itself from mise's `postinstall`. Pre-commit: hygiene,
 `main` refused, diff-scoped flint, `mise run overlay --check`; it runs `fix = true`, so shfmt, rumdl,
 ryl, taplo and `flint-setup` rewrite what you are committing. Commit-msg: conventional commit.
-Pre-push: `test:series`, `lint:docs`. `hk run check` and `hk run fix` fire only by name. Bypass one
+Pre-push: `test:series`, `lint:docs`, and a Kodus review of the branch that stops the push on a
+critical finding. `hk run check` and `hk run fix` fire only by name. Bypass one
 command with `HK=0`. Do not re-run by hand what a hook already runs.
 
 Silence a lint finding inline, at the line it applies to (`# shellcheck disable=SCxxxx`,

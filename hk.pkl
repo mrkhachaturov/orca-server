@@ -101,6 +101,12 @@ hooks {
         glob = List("docs/*.md")
         check = "CI=1 mise run lint:docs"
       }
+      // The same engine the pull request will run, against the branch, before the
+      // push exists. Only critical stops it — the server gate agrees.
+      ["kodus"] = new Step {
+        glob = List("src/**", "patches/**", ".mise/**/*.sh", "test/**", "build/**")
+        check = "kodus review --branch main --fail-on critical --prompt-only"
+      }
     }
   }
 

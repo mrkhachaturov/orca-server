@@ -2,13 +2,8 @@
 #MISE description="Validate kodus-config.yml against the vendored Kodus schema"
 #MISE dir="{{config_root}}"
 
-# The schema sets additionalProperties false and requires eleven keys, so one wrong
-# name invalidates the file rather than the line — and Kodus reports that only in
-# its own logs, after a review has already been skipped.
-#
-# .kody/codereview.schema.json is vendored from kodustech/kodus-ai at the tag this
-# instance runs. Re-vendor it when Kodus is upgraded:
-#   jq -S . <kodus-ai>/libs/common/schemas/codereview.json > .kody/codereview.schema.json
+# One wrong key invalidates the whole file, and Kodus says so only in its own logs.
+# Re-vendor the schema from kodus-ai's libs/common/schemas/codereview.json on upgrade.
 
 set -Eeuo pipefail
 
@@ -22,8 +17,7 @@ function main() {
     return 1
   }
 
-  # shellcheck disable=SC2016  # the ${} inside are JS template literals; the shell
-  # must not expand them — the paths arrive as argv.
+  # shellcheck disable=SC2016  # JS template literals; paths arrive as argv.
   node -e '
     const fs = require("fs")
     const [modules, schemaPath, configPath] = process.argv.slice(1)
