@@ -2,12 +2,8 @@
 #MISE description="Push .kody/rules/*.md into Kodus — create on first run, update after"
 #MISE dir="{{config_root}}"
 
-# The files are the source of truth; Kodus holds a copy. `kodus rules` is the only
-# surface that applies a rule without waiting for a pull request to close, and the
-# repo-file importer needs a dashboard toggle that nothing here can set.
-#
-# The server mints the uuid. It is written back into the file's frontmatter, so a
-# second run updates rather than duplicates.
+# The server mints the uuid; it is written back into the frontmatter, so a second run
+# updates rather than duplicates.
 
 set -Eeuo pipefail
 
@@ -34,19 +30,33 @@ function globs() {
   printf '%s\n' "$1" | tr -d '[]"' | tr -d ' '
 }
 
-# The file template says pull-request; the API wants a space.
+# The file template says pull-request; the API wants a space. Anything else is a typo
+# that would otherwise become a file-scoped rule in silence.
 function api_scope() {
-  [ "$1" = "pull-request" ] && printf 'pull request' || printf 'file'
+  case $1 in
+    pull-request) printf 'pull request' ;;
+    file) printf 'file' ;;
+    *)
+      echo "unknown scope '$1' — use file or pull-request" >&2
+      return 1
+      ;;
+  esac
 }
 
+# Replaces whatever the uuid line holds. Without one there is nowhere to record the
+# rule's identity, and every run would create a duplicate.
 function stamp_uuid() {
   local file=$1 uuid=$2
-  sed -i.bak "s|^uuid: \"\"|uuid: \"$uuid\"|" "$file"
+  grep -q '^uuid:' "$file" || {
+    echo "$file has no uuid field — add \`uuid: \"\"\` to its frontmatter" >&2
+    return 1
+  }
+  sed -i.bak "s|^uuid: .*|uuid: \"$uuid\"|" "$file"
   rm -f "$file.bak"
 }
 
-# The one setting kodus-config.yml cannot carry: the schema has isRequestChangesActive
-# but no threshold, so critical-only is set here. Everything else lives in the file.
+# The schema has isRequestChangesActive but no threshold, so this is the only setting
+# kodus-config.yml cannot carry.
 function apply_settings() {
   kodus config remote set . review.requestChanges.minSeverity critical > /dev/null
   echo "settings requestChanges.minSeverity=critical"
@@ -54,7 +64,8 @@ function apply_settings() {
 
 function main() {
   local slug id fm rule_body title scope path severity uuid out
-  slug=$(git remote get-url origin | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|')
+  # Both remote shapes, with or without the .git suffix.
+  slug=$(git remote get-url origin | sed -e 's|\.git$||' -e 's|/$||' -e 's|.*[:/]\([^/]*/[^/]*\)$|\1|')
   id=$(repo_id "$slug")
   [ -n "$id" ] || {
     echo "$slug is not a repository Kodus knows — add it with \`kodus config -r .\`" >&2
