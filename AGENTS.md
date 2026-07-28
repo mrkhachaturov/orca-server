@@ -1,3 +1,6 @@
+<!-- @kody-ignore — the invariants below ship as explicit rules under .kody/rules/, one per
+     file. Auto-import would collapse them into a single LLM-rewritten rule competing with those. -->
+
 # orca-server
 
 Upstream [Orca](https://github.com/stablyai/orca) (Electron, MIT) pinned as the `lib/orca`
@@ -37,6 +40,7 @@ capability is still needed; that is the review.
 | Build the AppImage | `mise run build [--platform linux/arm64]` |
 | Boot it and fetch the web client | `mise run test:e2e` — Linux host of the artifact's arch |
 | Move the pin and restack the series | `VERSION=<tag> mise run bump` |
+| Push the review rules to Kodus | `mise run kodus:rules` |
 
 Every gate that reads the assembled tree declares `depends = ["up"]` except `test:series`, which
 pops and pushes the series itself. `check` sequences them: `test:series` alone, then `up`, then the

@@ -18,3 +18,5 @@ node_modules
 /.claude/findings.md
 /.claude/skills/orca-graph/
 /.claude/skills/orca-wiki/
+# Written by `kodus skills install`, re-created by it on every machine.
+/.claude/commands/
