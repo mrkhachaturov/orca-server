@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE alias="up"
 #MISE description="Assemble the tree: apply the series, then copy the overlay in"
 #MISE dir="{{config_root}}"
 set -Eeuo pipefail

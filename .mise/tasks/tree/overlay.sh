@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE alias="overlay"
 #MISE description="Copy our own source into the patched Orca tree"
 #MISE dir="{{config_root}}"
 

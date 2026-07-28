@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE alias="bump"
 #MISE description="Move the pinned Orca submodule to a new tag and restack the series"
 #MISE dir="{{config_root}}"
 

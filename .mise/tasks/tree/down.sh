@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE alias="down"
 #MISE description="Return lib/orca to pristine upstream"
 #MISE dir="{{config_root}}"
 set -Eeuo pipefail

@@ -47,6 +47,11 @@ Every gate that reads the assembled tree declares `depends = ["up"]` except `tes
 pops and pushes the series itself. `check` sequences them: `test:series` alone, then `up`, then the
 rest in parallel. Run `up` by hand only before a hand-run `vitest`.
 
+**Every task lives in a folder, and that folder is what CI reads.** `tree/`, `build/` and `test/`
+run the full matrix on change; `lint/`, `kodus/` and `hooks/` run lint alone. Put a new task in the
+folder matching what it can reach. Short names survive as `#MISE alias`, so `mise run up` reaches
+`tree:up`.
+
 `build` targets this machine's architecture; both `linux/amd64` and `linux/arm64` are release
 targets, each built on a native runner in CI. The artifact is
 `dist/orca-server-<version>-<arch>.AppImage`, where `<arch>` is `uname -m` (`x86_64`, `aarch64`) —
