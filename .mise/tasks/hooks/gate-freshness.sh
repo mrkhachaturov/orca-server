@@ -9,7 +9,7 @@ set -uo pipefail
 command=$(jq -r '.tool_input.command // ""' 2> /dev/null)
 
 case $command in
-  *"mise run check"* | *"mise run ci"* | *"mise run test:"* | *"hk run check"* | *"hk run fix"*) ;;
+  *"mise run check"* | *"mise run ci"* | *"mise run test:"* | *"hk run check"*) ;;
   *) exit 0 ;;
 esac
 

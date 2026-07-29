@@ -9,7 +9,7 @@ set -uo pipefail
 
 pin=$(git -C lib/orca describe --tags 2> /dev/null || echo unknown)
 branch=$(git branch --show-current 2> /dev/null || echo DETACHED)
-applied=$(cd lib/orca 2> /dev/null && quilt applied 2> /dev/null | wc -l | tr -d ' ')
+applied=$(quilt applied 2> /dev/null | wc -l | tr -d ' ')
 expected=$(grep -cv '^[[:space:]]*\(#\|$\)' patches/series 2> /dev/null || echo '?')
 behind=$(git rev-list --count HEAD..origin/main 2> /dev/null || echo '?')
 

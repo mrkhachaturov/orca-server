@@ -27,12 +27,9 @@ esac
 [[ $target == *lib/orca* || $target == *.cache/orca-* ]] || exit 0
 
 read -r -d '' context << 'EOF'
-orca-graph indexes this tree: orca-patched (pin + series + overlay), orca-pristine (the pin bare),
-orca-next (a release we have not pinned). Ask it for symbols, definitions, callers and references —
-one trace_path returns every caller, where grep returns the first hits.
-
-grep is still the right tool here: a git rev no graph holds, non-symbol text such as comments,
-i18n keys or patch bodies, and a tree that has not been indexed yet.
+orca-graph holds this tree: orca-patched (pin + series + overlay), orca-pristine (pin bare),
+orca-next (an unpinned tag). Ask it for symbols, callers and references. Keep grep for a git rev,
+non-symbol text and an unindexed tree.
 EOF
 
 jq -nc --arg c "$context" \
