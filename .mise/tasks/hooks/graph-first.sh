@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="PreToolUse: name the graphs when a search targets Orca's tree"
 #MISE dir="{{config_root}}"
+#MISE raw=true
 
 # A nudge, never a refusal: grep stays right for a git rev, non-symbol text and an
 # unindexed tree.

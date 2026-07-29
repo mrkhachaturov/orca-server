@@ -86,8 +86,9 @@ bump:       mise run bump → orca-patch-audit (re-justify: keep | shrink | merg
             → orca-patch-author → orca-write-test → orca-patch-verify
 ```
 
-Each step names the skill in `.claude/skills/` that owns it. Run the skill rather than
-reconstructing its steps.
+Each step names the canonical skill in `.agents/skills/` that owns it. `.claude/skills/` exposes
+the same directories to Claude Code through symlinks. Run the skill rather than reconstructing its
+steps.
 
 ## The quality bar
 
@@ -111,9 +112,11 @@ representation**: local *is* the server, so there is no local fallback. Upstream
 
 ## Invariants
 
-Judgement, held every session. The mechanics that fail silently while a file is open —
-quilt ownership, overlay imports — load from `.claude/rules/` when that file is opened.
+Judgement is held every session. Claude loads the path-scoped mechanics from `.claude/rules/`;
+other agents must read the matching file before editing:
 
+- `patches/**` or `lib/orca/src/**` → `.claude/rules/quilt-mechanics.md`
+- `src/**` → `.claude/rules/overlay-imports.md`
 - **Fixing how a step ran does not re-check whether it should run.** When the premise moved — the
   pin, the branch, the tag — re-decide the step instead of re-running a corrected version of it.
 - **An unverified claim is labelled unverified.** "I did not check" is an answer; a guess stated as

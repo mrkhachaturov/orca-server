@@ -14,9 +14,14 @@ node_modules
 /mise.local.lock
 /.mcp.json
 /CLAUDE.local.md
+/AGENTS.override.md
+/.codex/config.toml
+/.codex/hooks.json
 /.claude/settings.local.json
 /.claude/findings.md
-/.claude/skills/orca-graph/
-/.claude/skills/orca-wiki/
+/.agents/skills/orca-graph/
+/.agents/skills/orca-wiki/
+/.claude/skills/orca-graph
+/.claude/skills/orca-wiki
 # Written by `kodus skills install`, re-created by it on every machine.
 /.claude/commands/
