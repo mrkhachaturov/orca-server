@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="SessionStart: publish pin, branch, series and graph state"
 #MISE dir="{{config_root}}"
+#MISE raw=true
 
 # A graph's head_sha reads live git, so an index built before the pin moved still reports
 # the new tag. Staleness is computed here, not asserted.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="PreToolUse: refuse a gate run from a branch behind main"
 #MISE dir="{{config_root}}"
+#MISE raw=true
 
 # Gating before a rebase pays for the whole matrix twice: the rebase resets every check.
 

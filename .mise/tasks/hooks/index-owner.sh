@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="PreToolUse: route graph indexing through the cbm tasks"
 #MISE dir="{{config_root}}"
+#MISE raw=true
 
 # Always denies: its matcher is the indexing MCP tool. The cbm tasks index --mode full
 # and cbm-patched refuses a partly applied series; a direct call skips both.
