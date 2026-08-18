@@ -1,0 +1,26 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['github>astrateam-net/renovate-config'],
+
+  // The pin is moved by .github/workflows/update.yaml, which also restacks the
+  // series. A bot that only moves the pointer leaves 13 patches unapplied.
+  'git-submodules': {
+    enabled: false,
+  },
+
+  // .github/dependabot.yaml already owns these.
+  'github-actions': {
+    enabled: false,
+  },
+
+  packageRules: [
+    {
+      // Upstream dictates it: `mise run bump` writes this from lib/orca/package.json
+      // `engines.node`, and Dockerfile's NODE_VERSION is derived from the same value.
+      // A newer Node here breaks the frozen lockfile.
+      matchManagers: ['mise'],
+      matchDepNames: ['node'],
+      enabled: false,
+    },
+  ],
+}
