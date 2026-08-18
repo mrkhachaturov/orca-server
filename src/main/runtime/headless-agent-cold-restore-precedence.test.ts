@@ -70,8 +70,8 @@ function activateHarness(rows: AgentStatusIpcPayload[], launchAgent: string | un
   internals.getMobileSessionTabsForWorktree = () => ({ tabs: [] })
   internals.applyMobileSessionTabNavigation = (result: unknown) => result
 
-  // Upstream's own resume entry point. Stubbed rather than run because it spawns a PTY; the
-  // request it receives is the whole contract this patch supplies.
+  // Upstream's resume entry point, stubbed because it spawns a PTY. The request it receives is
+  // the whole contract this patch supplies.
   const resumes: Record<string, unknown>[] = []
   internals.ensureAgentSession = async (request: Record<string, unknown>) => {
     resumes.push(request)

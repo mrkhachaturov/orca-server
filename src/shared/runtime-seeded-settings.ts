@@ -14,11 +14,8 @@ const LEFT_SIDEBAR_APPEARANCE_MODES: readonly LeftSidebarAppearanceMode[] = [
   'tinted'
 ]
 
-/**
- * v1.4.184 deleted upstream's `normalizeLeftSidebarAppearanceMode` but kept the setting and its
- * union, so the union is the only rule left to enforce. Clamps like its siblings rather than
- * rejecting: a hand-edited store must not fail the whole seed.
- */
+/** Clamps to the setting's union, like its siblings — a hand-edited store must not fail the
+ *  whole seed. Ours because upstream ships the setting without a normalizer. */
 export function normalizeLeftSidebarAppearanceMode(value: unknown): LeftSidebarAppearanceMode {
   return LEFT_SIDEBAR_APPEARANCE_MODES.includes(value as LeftSidebarAppearanceMode)
     ? (value as LeftSidebarAppearanceMode)
