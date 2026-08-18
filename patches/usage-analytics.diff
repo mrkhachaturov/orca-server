@@ -23,21 +23,19 @@ Index: orca-server/lib/orca/src/main/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/index.ts
 +++ orca-server/lib/orca/src/main/index.ts
-@@ -2094,7 +2094,13 @@ app.whenReady().then(async () => {
-         systemCodexHomePath: resolveHostCodexSessionSourceHome(store!.getSettings())
+@@ -2556,6 +2556,12 @@ void app.whenReady().then(async () => {
        }),
      buildAgentHookPtyEnv: () =>
--      isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {}
-+      isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {},
+       isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {},
 +    // Why: the usage stores are constructed above in the shared startup path (the
 +    // same block as StatsCollector), so they scan under `orca serve` too — only the
 +    // browser had no way to ask them. One registry, so adding a token-analytics
 +    // provider stays a single line here.
 +    getUsageStore: (provider) =>
-+      provider === 'claude' ? claudeUsage : provider === 'codex' ? codexUsage : openCodeUsage
++      provider === 'claude' ? claudeUsage : provider === 'codex' ? codexUsage : openCodeUsage,
+     orchestrationEnvironmentTransport
    })
    runtime = runtimeService
-   browserManager.setBrowserGuestStateChangedListener((worktreeId) => {
 Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
@@ -89,7 +87,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -197,6 +197,7 @@ import {
+@@ -290,6 +290,7 @@ import {
  import type { SshConnectionState } from '../../shared/ssh-types'
  import { getPublicSshState } from './public-ssh-state'
  import { closeTerminalTabInWorkspaceSession } from '../../shared/workspace-session-terminal-tab-close'
@@ -97,8 +95,8 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import type {
    LinearCurrentIssueContextHints,
    LinearAttachResult,
-@@ -2448,6 +2449,38 @@ async function hasLocalWorktreeBaseRef(
-   )
+@@ -2748,6 +2749,38 @@ function getSetupRunnerCommandPlatformFo
+   return getSetupRunnerCommandPlatformForPath(setup?.runnerScriptPath ?? '', fallbackPlatform)
  }
  
 +// Why: one list, so a fourth token-analytics provider is a registry entry in
@@ -136,7 +134,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  export class OrcaRuntimeService {
    private readonly runtimeId = randomUUID()
    private readonly startedAt = Date.now()
-@@ -2972,6 +3005,14 @@ export class OrcaRuntimeService {
+@@ -3384,6 +3417,14 @@ export class OrcaRuntimeService {
        buildAgentHookPtyEnv?: () => Record<string, string>
        getDesktopWindowStatus?: () => RuntimeDesktopWindowStatus
        agentSessionClaimSigner?: AgentSessionClaimSigner
@@ -148,10 +146,10 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 +      // desktop handlers use — the logs, the scanner and the stores are already
 +      // on this host; only the pipe was missing.
 +      getUsageStore?: (provider: RuntimeUsageProvider) => RuntimeUsageStore | null
+       orchestrationEnvironmentTransport?: OrchestrationEnvironmentTransport
      }
    ) {
-     this.store = store
-@@ -3008,6 +3049,7 @@ export class OrcaRuntimeService {
+@@ -3430,6 +3471,7 @@ export class OrcaRuntimeService {
      this.onTerminalAgentStatus = deps?.onTerminalAgentStatus ?? null
      this.buildAgentHookPtyEnv = deps?.buildAgentHookPtyEnv ?? null
      this.getDesktopWindowStatusFn = deps?.getDesktopWindowStatus ?? (() => 'openable')
@@ -159,8 +157,8 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      this.prepareAiVaultSessionResumeFn = deps?.prepareAiVaultSessionResume ?? null
      this.agentSessionClaimSigner =
        deps?.agentSessionClaimSigner ?? createEphemeralAgentSessionClaimSigner(this.runtimeId)
-@@ -3441,6 +3483,21 @@ export class OrcaRuntimeService {
-     this.automationService = service
+@@ -4659,6 +4701,21 @@ export class OrcaRuntimeService {
+     return this.artifactService
    }
  
 +  private usageStoreResolver:
@@ -185,15 +183,15 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/index.ts
 +++ orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
-@@ -40,6 +40,7 @@ import { MOBILE_PAIRING_METHODS } from '
+@@ -41,6 +41,7 @@ import { MOBILE_PAIRING_METHODS } from '
  import { UPDATER_METHODS } from './updater'
  import { CLI_METHODS } from './cli'
  import { FLOATING_WORKSPACE_METHODS } from './floating-workspace'
 +import { USAGE_METHODS } from './usage'
  import { AGENT_SESSION_METHODS } from './agent-session'
+ import { ARTIFACT_METHODS } from './artifacts'
  
- // Why: a flat manifest keeps registration order explicit and provides one
-@@ -87,5 +88,6 @@ export const ALL_RPC_METHODS: readonly R
+@@ -91,5 +92,6 @@ export const ALL_RPC_METHODS: readonly R
    ...MOBILE_PAIRING_METHODS,
    ...UPDATER_METHODS,
    ...CLI_METHODS,
@@ -205,7 +203,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -828,6 +828,9 @@ function createWebPreloadApi(): Partial<
+@@ -919,6 +919,9 @@ function createWebPreloadApi(): Partial<
      preflight: createPreflightApi(),
      notifications: createNotificationsApi(),
      rateLimits: createRateLimitsApi(),
@@ -215,7 +213,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
      minimaxCredentials: createMiniMaxCredentialsApi(),
      grokAccounts: createGrokAccountsApi(),
      codexAccounts: createAccountsApi(),
-@@ -2960,6 +2963,52 @@ function createNotificationsApi(): NonNu
+@@ -3252,6 +3255,52 @@ function createNotificationsApi(): NonNu
    }
  }
  

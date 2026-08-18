@@ -4,15 +4,20 @@ After a workspace restart, opening an agent pane in the tile renders its full
 transcript in chat view while typing in the composer lands in a shell:
 `bash: command not found`.
 
-Desktop rebuilds the resume in its renderer and `orca serve` has no renderer, so
-the materialize path launched a fresh agent at best - real history beside a
-composer talking to bash. `resolveHeadlessAgentColdRestore` reads the host's
-agent-hook rows, hydrated from disk at startup with `agentType` and
-`providerSession`, and resumes through upstream's `buildAgentResumeStartupPlan`.
-A configured `tab.launchAgent` outranks the hook row and a disagreement drops
-the resume, since agent and provider session must move together. That plan
-always returns `followupPrompt` null, so a caller-supplied prompt is typed in
-once the agent is up rather than discarded.
+Upstream already owns the whole resume - `ensureAgentSession` runs the
+execution-owner check, signs the session claim, builds the resume startup plan
+and spawns in the background path `createTerminal` added for a serve host with
+no renderer window (#10333). What it cannot do headless is know WHICH session to
+resume: that request normally comes from the renderer, and `orca serve` has
+none, which is why it refuses `kind: 'automatic'` outright.
+
+So this supplies only the request. `resolveHeadlessAgentColdRestore` reads the
+agent and provider session off this host's agent-hook rows - disk-hydrated at
+startup, so they survive the restart that killed the agent - and hands them to
+`ensureAgentSession` as an explicit one. A configured `tab.launchAgent` outranks
+the hook row and a disagreement drops the resume, since agent and provider
+session must move together. A refused or unresolvable resume falls through to
+the plain materialize rather than leaving the tab untappable.
 
 To test, restart the workspace, open an agent pane in the tile and continue the
 conversation: the agent should answer with full prior context and run shell
@@ -22,22 +27,22 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -185,8 +185,14 @@ import {
+@@ -273,8 +273,14 @@ import { preservedBranchCleanupScopeKey
  import { getRegisteredSshState } from '../ipc/ssh'
  import type {
    AgentProviderSessionMetadata,
 +  ResumableTuiAgent,
    SleepingAgentLaunchConfig
  } from '../../shared/agent-session-resume'
-+// Why: value imports — agent-session-resume is a dependency-free leaf, so no cycle (usage-analytics).
++// Why value imports: agent-session-resume is a dependency-free leaf, so no cycle.
 +import {
 +  isResumableTuiAgent,
 +  normalizeAgentProviderSession
 +} from '../../shared/agent-session-resume'
+ import type { ExactWorkerProviderSession } from '../../shared/orchestration-worker-output'
  import type { RuntimeClientEvent } from '../../shared/runtime-client-events'
  import { toRuntimeActivateWorktreeEvent } from '../../shared/runtime-client-events'
- import {
-@@ -5748,11 +5754,25 @@ export class OrcaRuntimeService {
+@@ -7628,11 +7634,52 @@ export class OrcaRuntimeService {
          let agentStartup: Awaited<
            ReturnType<OrcaRuntimeService['resolveMobileSessionTerminalCommand']>
          > = {}
@@ -55,75 +60,56 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 +        const startupAgent = tab.launchAgent ?? coldRestore?.agent
 +        const resumable =
 +          coldRestore && coldRestore.agent === startupAgent ? coldRestore : null
++        if (resumable) {
++          // Why hand this to ensureAgentSession rather than build the launch here: it already
++          // owns the whole resume — the execution-owner check, the signed session claim,
++          // buildAgentResumeStartupPlan, and the background spawn createTerminal added for a
++          // serve host with no renderer window (#10333). The one thing it cannot do headless is
++          // know WHICH session to resume, because that request normally comes from the renderer.
++          // Supplying it from this host's hook rows is the whole of our part.
++          try {
++            await this.ensureAgentSession({
++              kind: 'explicit',
++              worktree: `id:${worktreeId}`,
++              agent: resumable.agent,
++              providerSession: resumable.providerSession,
++              placement: { tabId: tab.parentTabId, leafId: tab.leafId },
++              presentation: 'background'
++            })
++            return this.applyMobileSessionTabNavigation(
++              this.getMobileSessionTabsForWorktree(worktreeId),
++              tab.id,
++              navigation,
++              opts.clientNavigationId
++            )
++          } catch {
++            // Why fall through rather than fail: a disabled agent, an unresolvable execution
++            // owner, or a session id the provider no longer knows must still leave a usable
++            // pane. The plain materialize below is that pane.
++          }
++        }
 +        if (startupAgent) {
            try {
              const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`)
              agentStartup = await this.resolveMobileSessionTerminalCommand(workspace, {
 -              agent: tab.launchAgent
-+              agent: startupAgent,
-+              ...(resumable ? { resumeProviderSession: resumable.providerSession } : {})
++              agent: startupAgent
              })
            } catch {
              // Why: a disabled or unresolvable agent must not make the tab
-@@ -5771,7 +5791,11 @@ export class OrcaRuntimeService {
+@@ -7651,7 +7698,7 @@ export class OrcaRuntimeService {
              env: agentStartup.env,
              startupCommandDelivery: agentStartup.startupCommandDelivery,
              launchConfig: agentStartup.launchConfig,
 -            launchAgent: tab.launchAgent,
 +            launchAgent: agentStartup.launchAgent ?? tab.launchAgent,
-+            ...(agentStartup.resumeProviderSession
-+              ? { resumeProviderSession: agentStartup.resumeProviderSession }
-+              : {}),
-+            ...(agentStartup.followup ? { followup: agentStartup.followup } : {}),
              targetGroupId
            })
          } catch (err) {
-@@ -22459,7 +22483,8 @@ export class OrcaRuntimeService {
-           launchAgent: startupCommand.launchAgent,
-           viewMode: opts.viewMode,
-           targetGroupId: opts.targetGroupId,
--          launchConfig: startupCommand.launchConfig
-+          launchConfig: startupCommand.launchConfig,
-+          ...(startupCommand.followup ? { followup: startupCommand.followup } : {})
-         }
-       )
-     }
-@@ -22572,7 +22597,8 @@ export class OrcaRuntimeService {
-           launchAgent: startupCommand.launchAgent,
-           viewMode: opts.viewMode,
-           targetGroupId: opts.targetGroupId,
--          launchConfig: startupCommand.launchConfig
-+          launchConfig: startupCommand.launchConfig,
-+          ...(startupCommand.followup ? { followup: startupCommand.followup } : {})
-         }
-       )
-     } catch (error) {
-@@ -22609,6 +22635,9 @@ export class OrcaRuntimeService {
-       agentPrompt?: string
-       launchConfig?: SleepingAgentLaunchConfig
-       launchAgent?: TuiAgent
-+      // Why: cold restore — relaunch the agent against its existing provider session instead of a
-+      // fresh one, the way the desktop renderer does (pty-connection.ts coldRestoreStartup).
-+      resumeProviderSession?: AgentProviderSessionMetadata
-     }
-   ): Promise<{
-     command?: string
-@@ -22617,6 +22646,10 @@ export class OrcaRuntimeService {
-     startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
-     launchConfig?: SleepingAgentLaunchConfig
-     launchAgent?: TuiAgent
-+    resumeProviderSession?: AgentProviderSessionMetadata
-+    // Why: a resumed launch carries its prompt here rather than in the command, because
-+    // upstream's resume plan has no argv slot for one.
-+    followup?: WorktreeStartupFollowup
-   }> {
-     if (opts.command || !opts.agent) {
-       return {
-@@ -22644,17 +22677,35 @@ export class OrcaRuntimeService {
-       isRemote,
+@@ -26674,16 +26721,16 @@ export class OrcaRuntimeService {
        terminalWindowsShell: settings.terminalWindowsShell
      })
--    const startupPlan = buildAgentStartupPlan({
+     const startupPlan = buildAgentStartupPlan({
 -      agent: opts.agent,
 -      prompt: opts.agentPrompt ?? '',
 -      cmdOverrides: settings.agentCmdOverrides ?? {},
@@ -134,25 +120,6 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 -      isRemote,
 -      allowEmptyPromptLaunch: true
 -    })
-+    // Why: same context resolution (platform/shell/overrides) for both variants; only the argv
-+    // differs. A non-resumable agent or an unusable session id yields null, and we fall back to a
-+    // fresh launch rather than failing the tab open.
-+    const resumePlan =
-+      opts.resumeProviderSession && isResumableTuiAgent(opts.agent)
-+        ? buildAgentResumeStartupPlan({
-+            agent: opts.agent,
-+            providerSession: opts.resumeProviderSession,
-+            cmdOverrides: settings.agentCmdOverrides ?? {},
-+            agentArgs: resolveTuiAgentLaunchArgs(opts.agent, settings.agentDefaultArgs),
-+            agentEnv: resolveTuiAgentLaunchEnv(opts.agent, settings.agentDefaultEnv),
-+            platform,
-+            shell: queuedShell,
-+            isRemote
-+          })
-+        : null
-+    const startupPlan =
-+      resumePlan ??
-+      buildAgentStartupPlan({
 +        agent: opts.agent,
 +        prompt: opts.agentPrompt ?? '',
 +        cmdOverrides: settings.agentCmdOverrides ?? {},
@@ -166,21 +133,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      if (!startupPlan) {
        throw new Error(`Could not build launch command for ${opts.agent}.`)
      }
-@@ -22678,10 +22729,43 @@ export class OrcaRuntimeService {
-       envToDelete: opts.envToDelete,
-       launchConfig: startupPlan.launchConfig,
-       launchAgent: opts.agent,
--      startupCommandDelivery: startupPlan.startupCommandDelivery
-+      startupCommandDelivery: startupPlan.startupCommandDelivery,
-+      ...(resumePlan ? { resumeProviderSession: opts.resumeProviderSession } : {}),
-+      // Why: a resume launches from the session id alone and cannot carry a prompt in its argv —
-+      // upstream's buildAgentResumeStartupPlan always returns followupPrompt null — so deliver it
-+      // the way the create path already does, typed into the pane once the agent is up. Dropping
-+      // it here would discard the caller's prompt silently.
-+      followup:
-+        resumePlan && opts.agentPrompt
-+          ? { expectedProcess: startupPlan.expectedProcess, prompt: opts.agentPrompt }
-+          : undefined
+@@ -26711,6 +26758,36 @@ export class OrcaRuntimeService {
      }
    }
  
@@ -197,48 +150,23 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 +    if (!isTerminalLeafId(tab.leafId) || tab.parentTabId.includes(':')) {
 +      return null
 +    }
-+    const row = agentStatusEntriesByPaneKey(this.getAgentStatusIpcRows()).get(
-+      makePaneKey(tab.parentTabId, tab.leafId)
-+    )
-+    const agent = row?.agentType
-+    if (!row || !isResumableTuiAgent(agent)) {
++    const paneKey = makePaneKey(tab.parentTabId, tab.leafId)
++    // Why upstream's own accessors: v1.4.184 resolves provider-session rows per pane for
++    // exactly this reason — "hook rows are the only carrier of live agent state on a
++    // headless host" — so the identity we need is already indexed and disk-hydrated.
++    const rows =
++      this.getAgentProviderSessionRowsForPaneFn?.(paneKey) ??
++      indexAgentStatusRowsByPaneKey(this.getAgentProviderSessionSnapshotFn?.() ?? []).get(paneKey) ??
++      []
++    const row = this.getHookAgentRowForPane(rows)
++    const agent = row.providerSessionAgentType ?? row.agentType
++    if (!isResumableTuiAgent(agent)) {
 +      return null
 +    }
 +    const providerSession = normalizeAgentProviderSession(row.providerSession)
 +    return providerSession ? { agent, providerSession } : null
 +  }
 +
-   private async createHeadlessMobileSessionTerminal(
+   private async createRuntimeOwnedMobileSessionTerminal(
      worktreeId: string,
      activate: boolean,
-@@ -22697,6 +22781,8 @@ export class OrcaRuntimeService {
-       viewMode?: 'terminal' | 'chat'
-       targetGroupId?: string
-       launchConfig?: SleepingAgentLaunchConfig
-+      resumeProviderSession?: AgentProviderSessionMetadata
-+      followup?: WorktreeStartupFollowup
-     } = {}
-   ): Promise<RuntimeMobileSessionCreateTerminalResult> {
-     const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`)
-@@ -22712,6 +22798,9 @@ export class OrcaRuntimeService {
-       envToDelete: opts.envToDelete,
-       ...(opts.launchConfig ? { launchConfig: opts.launchConfig } : {}),
-       ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
-+      ...(opts.resumeProviderSession
-+        ? { resumeProviderSession: opts.resumeProviderSession }
-+        : {}),
-       ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
-       startupCommandDelivery: opts.startupCommandDelivery,
-       ...(opts.identity
-@@ -22731,6 +22820,11 @@ export class OrcaRuntimeService {
-     if (!livePty) {
-       throw new Error('terminal_handle_stale')
-     }
-+    if (opts.followup) {
-+      // Why: headless has no renderer to type the prompt after the agent settles, so the host
-+      // does it — the same wait-for-process-then-write the window path uses.
-+      this.sendStartupFollowupWhenReady(terminal.handle, opts.followup)
-+    }
-     const parentTabId = livePty.pty.tabId ?? `pty:${livePty.pty.ptyId}`
-     const leafId = parsePaneKey(livePty.pty.paneKey ?? '')?.leafId ?? randomUUID()
-     if (opts.viewMode) {

@@ -1,13 +1,29 @@
 import { z } from 'zod'
 import { normalizeAppIconId } from './app-icon'
 import {
-  normalizeLeftSidebarAppearanceMode,
   normalizeLeftSidebarTintColor,
   normalizeLeftSidebarTintOpacity
 } from './left-sidebar-appearance'
 import { normalizeOpenInApplications } from './open-in-applications'
 import { normalizeUiLanguage } from './ui-language'
-import type { GlobalSettings, OpenInApplication } from './types'
+import type { GlobalSettings, LeftSidebarAppearanceMode, OpenInApplication } from './types'
+
+const LEFT_SIDEBAR_APPEARANCE_MODES: readonly LeftSidebarAppearanceMode[] = [
+  'default',
+  'match-terminal',
+  'tinted'
+]
+
+/**
+ * v1.4.184 deleted upstream's `normalizeLeftSidebarAppearanceMode` but kept the setting and its
+ * union, so the union is the only rule left to enforce. Clamps like its siblings rather than
+ * rejecting: a hand-edited store must not fail the whole seed.
+ */
+export function normalizeLeftSidebarAppearanceMode(value: unknown): LeftSidebarAppearanceMode {
+  return LEFT_SIDEBAR_APPEARANCE_MODES.includes(value as LeftSidebarAppearanceMode)
+    ? (value as LeftSidebarAppearanceMode)
+    : 'default'
+}
 
 /**
  * `command` is a shell command a DESKTOP client executes, and seeding travels runtime → client,

@@ -66,76 +66,73 @@ function activateHarness(rows: AgentStatusIpcPayload[], launchAgent: string | un
   })
   internals.shouldMaterializeHeadlessMobileSessionTab = () => true
   internals.resolveTerminalWorkspaceLaunchScope = async () => ({ path: '/tmp/audit' })
-  const seen: Record<string, unknown>[] = []
-  internals.resolveMobileSessionTerminalCommand = async (
-    _workspace: unknown,
-    opts: Record<string, unknown>
-  ) => {
-    seen.push(opts)
-    return {}
-  }
-  internals.createHeadlessMobileSessionTerminal = async () => ({})
+  internals.resolveMobileSessionTerminalCommand = async () => ({})
   internals.getMobileSessionTabsForWorktree = () => ({ tabs: [] })
   internals.applyMobileSessionTabNavigation = (result: unknown) => result
-  return { runtime, seen }
+
+  // Upstream's own resume entry point. Stubbed rather than run because it spawns a PTY; the
+  // request it receives is the whole contract this patch supplies.
+  const resumes: Record<string, unknown>[] = []
+  internals.ensureAgentSession = async (request: Record<string, unknown>) => {
+    resumes.push(request)
+    return { terminal: {}, disposition: 'created' }
+  }
+  const plainCreates: Record<string, unknown>[] = []
+  internals.createRuntimeOwnedMobileSessionTerminal = async (
+    _w: string,
+    _a: boolean,
+    _after: string | undefined,
+    opts: Record<string, unknown>
+  ) => {
+    plainCreates.push(opts)
+    return {}
+  }
+  return { runtime, resumes, plainCreates }
 }
 
 describe('cold-restore agent precedence', () => {
-  it('honours the explicitly configured tab.launchAgent over the hook-cache agent', async () => {
-    const { runtime, seen } = activateHarness([hookRow({ agentType: 'claude' })], 'codex')
+  it('resumes the hook-cache session through upstream ensureAgentSession', async () => {
+    const { runtime, resumes, plainCreates } = activateHarness(
+      [hookRow({ agentType: 'claude' })],
+      undefined
+    )
     await runtime.activateMobileSessionTab(WORKTREE, TAB, LEAF)
 
-    expect(seen).toHaveLength(1)
-    expect(seen[0]?.agent).toBe('codex')
-  })
-
-  it('still uses the hook-cache agent when the tab configures none', async () => {
-    const { runtime, seen } = activateHarness([hookRow({ agentType: 'claude' })], undefined)
-    await runtime.activateMobileSessionTab(WORKTREE, TAB, LEAF)
-
-    expect(seen[0]?.agent).toBe('claude')
-  })
-})
-
-function commandResolver() {
-  const runtime = new OrcaRuntimeService(
-    { getSettings: () => SETTINGS } as never,
-    undefined,
-    {} as never
-  ) as unknown as {
-    resolveMobileSessionTerminalCommand: (
-      workspace: unknown,
-      opts: Record<string, unknown>
-    ) => Promise<{
-      command?: string
-      resumeProviderSession?: unknown
-      followup?: { expectedProcess?: string; prompt?: string }
-    }>
-  }
-  return (opts: Record<string, unknown>) =>
-    runtime.resolveMobileSessionTerminalCommand({ path: '/tmp/audit' }, opts)
-}
-
-describe('agentPrompt on a resuming launch', () => {
-  const PROMPT = 'audit-prompt-marker'
-
-  it('delivers the caller prompt as a follow-up when resuming a provider session', async () => {
-    const resolved = await commandResolver()({
+    // Why assert the request and not a launch command: ensureAgentSession owns the claim, the
+    // resume startup plan and the headless background spawn. The only thing a serve host must
+    // supply is WHICH session to resume, because that normally comes from the renderer.
+    expect(resumes).toHaveLength(1)
+    expect(resumes[0]).toMatchObject({
+      kind: 'explicit',
       agent: 'claude',
-      agentPrompt: PROMPT,
-      resumeProviderSession: { key: 'session_id', id: SESSION_ID }
+      providerSession: { id: SESSION_ID },
+      placement: { tabId: TAB, leafId: LEAF }
     })
-
-    // A resume launches from the session id alone, so the prompt cannot ride the argv — it is
-    // typed into the pane once the agent is up.
-    expect(resolved.resumeProviderSession).toMatchObject({ id: SESSION_ID })
-    expect(resolved.command).not.toContain(PROMPT)
-    expect(resolved.followup).toMatchObject({ prompt: PROMPT })
+    expect(plainCreates).toHaveLength(0)
   })
 
-  it('carries the caller prompt into a fresh (non-resuming) launch command', async () => {
-    const resolved = await commandResolver()({ agent: 'claude', agentPrompt: PROMPT })
+  it('honours the explicitly configured tab.launchAgent over the hook-cache agent', async () => {
+    const { runtime, resumes, plainCreates } = activateHarness(
+      [hookRow({ agentType: 'claude' })],
+      'codex'
+    )
+    await runtime.activateMobileSessionTab(WORKTREE, TAB, LEAF)
 
-    expect(resolved.command).toContain(PROMPT)
+    // Why no resume: agent and provider session move together, so resuming a claude session
+    // under a tab configured for codex would attach the wrong provider to that session id.
+    expect(resumes).toHaveLength(0)
+    expect(plainCreates).toHaveLength(1)
+    expect(plainCreates[0]?.launchAgent).toBe('codex')
+  })
+
+  it('falls back to a plain create when the pane has no provider session', async () => {
+    const { runtime, resumes, plainCreates } = activateHarness(
+      [hookRow({ agentType: 'claude', providerSession: undefined })],
+      undefined
+    )
+    await runtime.activateMobileSessionTab(WORKTREE, TAB, LEAF)
+
+    expect(resumes).toHaveLength(0)
+    expect(plainCreates).toHaveLength(1)
   })
 })

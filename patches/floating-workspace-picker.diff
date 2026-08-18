@@ -289,7 +289,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
 +++ orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
-@@ -1,14 +1,18 @@
+@@ -1,16 +1,19 @@
  import { useEffect, useState } from 'react'
  import { FolderOpen } from 'lucide-react'
 +import { toast } from 'sonner'
@@ -304,11 +304,13 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  import { getFloatingWorkspaceSearchEntries } from './floating-workspace-search'
  import { matchesSettingsSearch } from './settings-search'
  import { useAppStore } from '../../store'
-+import { isWebClientLocation } from '@/lib/web-client-location'
- import { translate } from '@/i18n/i18n'
+-import { translate } from '@/i18n/i18n'
  import { isWebClientLocation } from '@/lib/web-client-location'
++import { translate } from '@/i18n/i18n'
  
-@@ -28,7 +32,25 @@ export function getFloatingWorkspaceDire
+ type FloatingWorkspacePaneProps = {
+   settings: GlobalSettings
+@@ -28,7 +31,25 @@ export function getFloatingWorkspaceDire
    if (!configuredPath || configuredPath === '~') {
      return '~'
    }
@@ -335,7 +337,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  }
  
  export function FloatingWorkspacePane({
-@@ -38,6 +60,13 @@ export function FloatingWorkspacePane({
+@@ -38,6 +59,13 @@ export function FloatingWorkspacePane({
    const searchQuery = useAppStore((state) => state.settingsSearchQuery)
    const includeBrowser = !isWebClientLocation()
    const [resolvedFloatingWorkspacePath, setResolvedFloatingWorkspacePath] = useState('')
@@ -349,7 +351,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  
    useEffect(() => {
      let cancelled = false
-@@ -60,13 +89,38 @@ export function FloatingWorkspacePane({
+@@ -60,13 +88,38 @@ export function FloatingWorkspacePane({
      }
    }, [settings.floatingTerminalCwd])
  
@@ -390,7 +392,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
    }
  
    const directoryInputValue = getFloatingWorkspaceDirectoryInputValue({
-@@ -197,6 +251,36 @@ export function FloatingWorkspacePane({
+@@ -197,6 +250,36 @@ export function FloatingWorkspacePane({
            }
          />
        </SearchableSetting>

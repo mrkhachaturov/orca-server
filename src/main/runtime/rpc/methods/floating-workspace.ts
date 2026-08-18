@@ -1,5 +1,9 @@
 import { z } from 'zod'
 import { defineMethod, type RpcMethod } from '../core'
+// Why the ipc leaf and not a runtime method: this is the same host helper the desktop
+// `app:getFloatingMarkdownDirectory` handler calls, and importing it directly keeps the
+// value off orca-runtime's import cycle.
+import { ensureDefaultFloatingWorkspacePath } from '../../../ipc/floating-workspace-directory'
 
 // Mirrors the desktop `app:getFloatingTerminalCwd` handler and the native picker's
 // `grantFloatingWorkspaceDirectory` step (src/main/ipc/app.ts). Both mutate host state
@@ -24,8 +28,8 @@ export const FLOATING_WORKSPACE_METHODS: RpcMethod[] = [
     params: z.object({}),
     // The web preload stubs `app:getFloatingMarkdownDirectory` to '', which the floating
     // panel reads as "nowhere to put a note".
-    handler: async (_params, { runtime }) => ({
-      path: await runtime.ensureFloatingMarkdownDirectory()
+    handler: async () => ({
+      path: await ensureDefaultFloatingWorkspacePath()
     })
   }),
   defineMethod({
