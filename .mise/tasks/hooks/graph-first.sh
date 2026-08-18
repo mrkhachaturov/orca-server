@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="PreToolUse: name the graphs when a search targets Orca's tree"
+#MISE description="PreToolUse: name the mirror when a search targets Orca's tree"
 #MISE dir="{{config_root}}"
 #MISE raw=true
 
@@ -28,9 +28,9 @@ esac
 [[ $target == *lib/orca* || $target == *.cache/orca-* ]] || exit 0
 
 read -r -d '' context << 'EOF'
-orca-graph holds this tree: orca-patched (pin + series + overlay), orca-pristine (pin bare),
-orca-next (an unpinned tag). Ask it for symbols, callers and references. Keep grep for a git rev,
-non-symbol text and an unindexed tree.
+Sourcegraph indexes this tree: repo orca-mirror, rev:patched (pin + series + overlay) and
+rev:pristine (pin bare). Ask it for symbols, callers and references — precise navigation crosses
+the patch boundary. Keep grep for a git rev, non-symbol text and uncommitted work.
 EOF
 
 jq -nc --arg c "$context" \

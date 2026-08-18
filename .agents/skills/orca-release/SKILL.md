@@ -3,8 +3,8 @@ name: orca-release
 description: >-
   Take a merged bump to a published release: rebase before gating, merge the `update/*` pull
   request, read the draft the workflow builds, publish it, roll the changelog, return to main and
-  reindex the pin graphs. Merging the pull request is what triggers the release workflow, so the
-  order is not optional.
+  publish the new pin to the search mirror. Merging the pull request is what triggers the release
+  workflow, so the order is not optional.
 when_to_use: >-
   When a bump branch is ready to release, before the final gate — step 1 rebases, and a rebase
   invalidates any gate that ran before it. Run `orca-patch-verify` on the rebased head, not before.
@@ -103,8 +103,9 @@ Its own commit, `docs: roll the changelog for v4.NNN.0`, on a branch — `hk` re
 git checkout main && git pull --ff-only
 git submodule update --init --recursive lib/orca
 mise run up          # every patch in patches/series applied, none skipped
-mise run cbm         # orca-patched and orca-pristine at the new pin
+mise run mirror      # pristine, patched and patched-<tag> at the new pin
 ```
 
-`mise run cbm`, not `cbm-next`: the tag that just shipped **is** the pin now. `orca-next` only ever
-holds a release we have not pinned, so leave it until the next candidate appears.
+`mirror` is what makes the release searchable: until it runs, Sourcegraph still answers from the
+previous pin. It is the only step here that reaches outside the repository, and no gate depends
+on it — a missed run costs search, not the release.

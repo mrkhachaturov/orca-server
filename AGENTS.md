@@ -40,12 +40,16 @@ capability is still needed; that is the review.
 | Build the AppImage | `mise run build [--platform linux/arm64]` |
 | Boot it and fetch the web client | `mise run test:e2e` — Linux host of the artifact's arch |
 | Move the pin and restack the series | `VERSION=<tag> mise run bump` |
+| Publish the tree to the search mirror | `mise run mirror` |
 | Push the review rules to Kodus | `mise run kodus:rules` |
 | Validate `kodus-config.yml` | `mise run kodus:config` |
 
 Every gate that reads the assembled tree declares `depends = ["up"]` except `test:series`, which
 pops and pushes the series itself. `check` sequences them: `test:series` alone, then `up`, then the
 rest in parallel. Run `up` by hand only before a hand-run `vitest`.
+
+`mirror` is the exception: it publishes and no gate reads it, so a stale mirror costs search, not
+CI. Run it after a bump and after any change to the series — see **Searching Orca** below.
 
 **Every task lives in a folder, and that folder is what CI reads.** `tree/`, `build/` and `test/`
 run the full matrix on change; `lint/`, `kodus/` and `hooks/` run lint alone. Put a new task in the
@@ -60,9 +64,10 @@ not the `amd64`/`arm64` the platform flag takes.
 `hk.pkl` owns the git lifecycle and installs itself from mise's `postinstall`. Pre-commit: hygiene,
 `main` refused, diff-scoped flint, `mise run overlay --check`; it runs `fix = true`, so shfmt, rumdl,
 ryl, taplo and `flint-setup` rewrite what you are committing. Commit-msg: conventional commit.
-Pre-push: `test:series`, `lint:docs`, and a Kodus review of the branch that stops the push on a
-critical finding. `hk run check` and `hk run fix` fire only by name. Bypass one
-command with `HK=0`. Do not re-run by hand what a hook already runs.
+Pre-push: `test:series` and `lint:docs`; the Kodus review step is commented out while the branch is
+mid-work. The server-side `Kody Code Review` on the pull request is untouched. `hk run check` and
+`hk run fix` fire only by name. Bypass one command with `HK=0`. Do not re-run by hand what a hook
+already runs.
 
 Silence a lint finding inline, at the line it applies to (`# shellcheck disable=SCxxxx`,
 `# hadolint ignore=DLxxxx`, `# zizmor: ignore[rule]`), with the reason. `flint.toml` excludes only
@@ -89,6 +94,26 @@ bump:       mise run bump → orca-patch-audit (re-justify: keep | shrink | merg
 Each step names the canonical skill in `.agents/skills/` that owns it. `.claude/skills/` exposes
 the same directories to Claude Code through symlinks. Run the skill rather than reconstructing its
 steps.
+
+## Searching Orca
+
+**Do not grep `lib/orca`.** Both trees are indexed on Sourcegraph, and precise navigation crosses
+the patch boundary — a patched upstream file resolves into the overlay module it imports.
+
+| question | where |
+| --- | --- |
+| how upstream does it | `repo:^github\.com/mrkhachaturov/orca-mirror$ rev:pristine` |
+| how we do it | same repo, `rev:patched` |
+| which patch owns it, and why | `repo:^github\.com/mrkhachaturov/orca-server$` — the `.diff` bodies are indexed as text |
+| what the series changes | `compare_revisions pristine → patched` — the diff **is** the series |
+| what a bump moves | `compare_revisions v<pin> → v<candidate>` |
+
+`mise run mirror` is what publishes those refs; both branches move, and `patched-<tag>` stays as
+the snapshot of that pin. Until it runs, Sourcegraph answers from the previous one.
+
+The `searching-sourcegraph` skill owns tool choice. Two worth knowing: `evaluator` runs Lua across
+many searches when a claim needs the **complete** set rather than the first hits, and `deepsearch`
+returns a conversation at a stable URL that later sessions read back with `deepsearch_read`.
 
 ## The quality bar
 
