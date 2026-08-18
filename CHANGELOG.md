@@ -31,6 +31,41 @@ Orca v9.99.999
 
 ## Unreleased
 
+Orca v1.4.184
+
+### Changed
+
+- Update to Orca v1.4.184, twenty-five releases on. Thirteen patches were
+  re-justified against the new tag and twelve were kept, one of them rewritten
+  and one dropped outright.
+- `headless-orchestration-delivery` now widens upstream's own push-on-idle
+  delivery to accept a target that both a renderer leaf and a PTY record
+  satisfy, resolving the PTY first the way `readTerminal` and `sendTerminal`
+  already do. One implementation serves both, so the browser keeps upstream's
+  in-flight serialization, waiter filtering, sequence guard and liveness probe
+  instead of a thinner copy of them.
+- `agent-cold-restore` supplies only the resume request and hands it to
+  upstream's `ensureAgentSession`, which already owns the execution-owner check,
+  the signed claim, the resume startup plan and the background spawn. Our
+  parallel resume plan is gone.
+- `execution-owner` extends upstream's new client creation policy so the
+  floating workspace belongs to the runtime that served the page. Upstream hides
+  that surface for a laptop paired to a remote Orca; a browser served by the
+  runtime has no client machine for it to be local to.
+
+### Fixed
+
+- Trusted-proxy mode no longer loses its loopback bind when a pairing code is
+  generated. Upstream's new `ensureNetworkExposure` rebinds the runtime listener
+  to every interface on any mobile offer, which would have published the runtime
+  with no authenticator in front of it.
+
+### Removed
+
+- `agent-status-surface`. Upstream resolves session-tab agent status from the
+  host's agent-hook rows at the publish boundary, wired for headless serve, and
+  their own test for it passes on a bare v1.4.184 probe.
+
 ## [4.159.0] - 2026-07-28
 
 Orca v1.4.159
