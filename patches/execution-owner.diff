@@ -19,6 +19,14 @@ skill terminal and a floating markdown note in the tile. Covered by
 `floating-workspace-runtime-owner.test.ts`,
 `settings-web-runtime-catalog.test.ts` and `web-preload-api.test.ts`.
 
+
+Deliberate divergence, v1.4.184: upstream's `client-creation-action-policy` hides the floating
+workspace's managed browser and keeps its terminal client-local, which is correct for their web
+client — a laptop paired to a remote Orca, where floating really is a local scratch surface. A
+browser served BY the runtime has no client machine, so "local" there means a rejecting `pty.spawn`
+and no `<webview>`. Both floating surfaces therefore take the runtime that served the page, and the
+two upstream tests asserting the paired-laptop rule are updated with that reason. The mobile
+emulator stays hidden: the web preload cannot stream its frames from anywhere.
 Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
@@ -62,7 +70,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -317,6 +317,7 @@ import {
+@@ -481,6 +481,7 @@ import {
    sharesResolvedWorktreeLineageBoundary
  } from '../../shared/resolved-worktree-lineage'
  import { folderWorkspaceToWorktree } from '../../shared/folder-workspace-worktree'
@@ -70,15 +78,15 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import type {
    FolderWorkspacePathStatus,
    FolderWorkspacePathStatusRequest
-@@ -772,6 +773,7 @@ import {
+@@ -889,6 +890,7 @@ import {
  import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
- import { isENOENT } from '../ipc/filesystem-auth'
+ import { isENOENT, invalidateAuthorizedRootsCache } from '../ipc/filesystem-auth'
  import {
 +  ensureDefaultFloatingWorkspacePath as ensureDefaultFloatingWorkspacePathOnHost,
    resolveFloatingTerminalCwd as resolveFloatingTerminalCwdOnHost,
    grantFloatingWorkspaceDirectory as grantFloatingWorkspaceDirectoryOnHost,
    type FloatingWorkspaceDirectoryStore
-@@ -7187,6 +7189,19 @@ export class OrcaRuntimeService {
+@@ -9170,6 +9172,19 @@ export class OrcaRuntimeService {
      worktree: ResolvedWorktree
      connectionId?: string
    }> {
@@ -98,39 +106,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      const folderScope = await this.resolveFolderWorkspaceLaunchScope(worktreeSelector)
      if (folderScope?.folderWorkspace) {
        return {
-@@ -15239,6 +15254,12 @@ export class OrcaRuntimeService {
-     await grantFloatingWorkspaceDirectoryOnHost(this.floatingWorkspaceDirectoryStore(), dirPath)
-   }
- 
-+  // Why: same helper the desktop app:getFloatingMarkdownDirectory handler calls — it
-+  // creates the app-owned floating workspace dir and authorizes just that path.
-+  async ensureFloatingMarkdownDirectory(): Promise<string> {
-+    return ensureDefaultFloatingWorkspacePathOnHost()
-+  }
-+
-   async browseServerDir(pathValue: string): Promise<{ resolvedPath: string; entries: DirEntry[] }> {
-     const dirPath = resolveServerBrowsePath(pathValue)
-     const dirStat = await stat(dirPath)
-@@ -21686,7 +21707,17 @@ export class OrcaRuntimeService {
-         // Why: `orca serve` exposes the local runtime without a renderer
-         // window. Renderer-backed Codex terminals are preferred for the app,
-         // but headless CLI users still need a usable terminal handle.
--        (opts.rendererBacked === true && rendererWindow === null))
-+        (opts.rendererBacked === true && rendererWindow === null) ||
-+        // Why: focus is a REQUEST to reveal the pane, not proof a renderer
-+        // exists to reveal it in. On a headless `orca serve` there is no
-+        // window, so the renderer-IPC path below threw 'No renderer window
-+        // available' and a web client asking for a focused agent terminal
-+        // (quick-open Claude/Codex, "Launch in a new terminal") got nothing
-+        // at all. Same answer the clause above gives renderer-backed headless
-+        // callers: spawn in the background, then reveal through
-+        // notifier.revealTerminalSession, which already honors
-+        // presentation === 'focused' and degrades to a warning.
-+        (requiresRendererFocus && availableAuthoritativeWindow === null))
- 
-     if (shouldCreateInBackground) {
-       if (!this.ptyController?.spawn) {
-@@ -24086,7 +24117,12 @@ export class OrcaRuntimeService {
+@@ -28574,7 +28589,12 @@ export class OrcaRuntimeService {
    }
  
    private folderWorkspaceToResolvedWorktree(folderWorkspace: FolderWorkspace): ResolvedWorktree {
@@ -148,8 +124,8 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/BrowserPane
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/BrowserPane.tsx
 +++ orca-server/lib/orca/src/renderer/src/components/browser-pane/BrowserPane.tsx
-@@ -156,7 +156,7 @@ import {
-   RuntimeRpcCallError,
+@@ -167,7 +167,7 @@ import {
+   runtimeEnvironmentSupportsCapability,
    type RuntimeClientTarget
  } from '@/runtime/runtime-rpc-client'
 -import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
@@ -157,7 +133,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/BrowserPane
  import type {
    BrowserBackResult,
    BrowserGotoResult,
-@@ -914,7 +914,13 @@ function RemoteBrowserPagePane({
+@@ -923,7 +923,13 @@ function RemoteBrowserPagePane({
    const isActiveRef = useRef(isActive)
    const currentBrowserTabIdRef = useRef(browserTab.id)
    const currentBrowserTabUrlRef = useRef(browserTab.url)
@@ -169,29 +145,31 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/BrowserPane
 +  // then the screencast subscribe failed, which is the error shown inside the pane.
 +  // `worktree` is OptionalString on every one of these schemas; absent means unscoped.
 +  const runtimeWorktree = useMemo(() => toRuntimeBrowserWorktreeSelector(worktreeId), [worktreeId])
+   const runtimeWorktreeRef = useRef(runtimeWorktree)
    const activeRuntimeEnvironmentIdRef = useRef<string | null>(activeRuntimeEnvironmentId)
-   const startRemoteStreamRef = useRef<
-     (pageId: string) => Promise<RemoteBrowserStreamSubscription | null>
+   // Why: the stream lifecycle is built once per pane, before the callbacks it needs exist. It
 Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx
 +++ orca-server/lib/orca/src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx
-@@ -86,8 +86,13 @@ import {
- } from './floating-terminal-panel-bounds'
+@@ -115,9 +115,15 @@ import { useSettledPanelViewport } from
+ import { shouldRestoreMaximizedPanelBounds } from './floating-terminal-panel-restore-geometry'
  import { translate } from '@/i18n/i18n'
  import { consumeFloatingTerminalOpenMaximizedIntent } from '@/lib/floating-terminal'
 +import { RemoteFileBrowser } from '@/components/sidebar/RemoteFileBrowser'
-+// Why: matches the desktop native picker's filter (src/main/ipc/app.ts).
-+const FLOATING_MARKDOWN_EXTENSIONS = ['md', 'mdx', 'markdown'] as const
 +import { resolveFloatingWorkspaceRuntimeEnvironmentId } from '@/lib/floating-workspace-runtime-owner'
 +import { isWebClientLocation } from '@/lib/web-client-location'
 +import { createWebRuntimeSessionBrowserTab } from '@/runtime/web-runtime-session'
  import { selectFloatingTerminalPanelInputs } from './floating-terminal-panel-inputs'
++
++// Why: matches the desktop native picker's filter (src/main/ipc/app.ts).
++const FLOATING_MARKDOWN_EXTENSIONS = ['md', 'mdx', 'markdown'] as const
+ import { getClientCreationActionPolicy } from '@/lib/client-creation-action-policy'
 -const LOCAL_RUNTIME_SETTINGS = { activeRuntimeEnvironmentId: null } as const
+ const NO_ACTIVITY_TERMINAL_PORTALS = []
  
  const EditorPanel = lazy(() => import('@/components/editor/EditorPanel'))
- 
-@@ -182,6 +187,19 @@ export function FloatingTerminalPanel({
+@@ -266,6 +272,19 @@ export function FloatingTerminalPanel({
    const openFile = useAppStore((s) => s.openFile)
    const browserDefaultUrl = useAppStore((s) => s.browserDefaultUrl)
    const floatingTerminalCwd = useAppStore((s) => s.settings?.floatingTerminalCwd ?? '')
@@ -211,7 +189,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
    const generatedTabTitlesEnabled = useAppStore((s) => s.settings?.tabAutoGenerateTitle === true)
    const newTerminalShortcut = useShortcutKeyDetails('tab.newTerminal')
    const newBrowserShortcut = useShortcutKeyDetails('tab.newBrowser')
-@@ -191,6 +209,7 @@ export function FloatingTerminalPanel({
+@@ -280,6 +299,7 @@ export function FloatingTerminalPanel({
  
    const [cwd, setCwd] = useState<string | null>(null)
    const [markdownCwd, setMarkdownCwd] = useState<string | null>(null)
@@ -219,9 +197,9 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
    const initialBoundsStateRef = useRef<FloatingTerminalPanelBoundsState | null>(null)
    if (initialBoundsStateRef.current === null) {
      initialBoundsStateRef.current = readInitialPanelBounds()
-@@ -675,6 +694,20 @@ export function FloatingTerminalPanel({
- 
-   const createFloatingBrowserTab = useCallback(() => {
+@@ -810,6 +830,20 @@ export function FloatingTerminalPanel({
+       return
+     }
      const url = browserDefaultUrl ?? 'about:blank'
 +    if (floatingRuntimeEnvironmentId) {
 +      // Why: a client-local browser pane needs a <webview> the web client does not have, so
@@ -240,7 +218,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
      createBrowserTab(FLOATING_TERMINAL_WORKTREE_ID, url, {
        title: translate(
          'auto.components.floating.terminal.FloatingTerminalPanel.8b14ba6c17',
-@@ -684,7 +717,7 @@ export function FloatingTerminalPanel({
+@@ -819,7 +853,7 @@ export function FloatingTerminalPanel({
        targetGroupId: activeGroup?.id,
        browserRuntimeEnvironmentId: null
      })
@@ -249,7 +227,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
  
    const createFloatingMarkdownTab = useCallback(() => {
      if (!markdownCwd) {
-@@ -696,7 +729,7 @@ export function FloatingTerminalPanel({
+@@ -831,7 +865,7 @@ export function FloatingTerminalPanel({
            markdownCwd,
            FLOATING_TERMINAL_WORKTREE_ID,
            getConnectionId(FLOATING_TERMINAL_WORKTREE_ID) ?? undefined,
@@ -258,7 +236,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
          )
          if (!fileInfo) {
            return
-@@ -704,15 +737,52 @@ export function FloatingTerminalPanel({
+@@ -839,15 +873,52 @@ export function FloatingTerminalPanel({
          openFile(fileInfo, {
            preview: false,
            targetGroupId: activeGroup?.id,
@@ -313,7 +291,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
      void (async () => {
        try {
          const document = await window.api.app.pickFloatingMarkdownDocument()
-@@ -726,19 +796,19 @@ export function FloatingTerminalPanel({
+@@ -861,19 +932,19 @@ export function FloatingTerminalPanel({
              worktreeId: FLOATING_TERMINAL_WORKTREE_ID,
              language: detectLanguage(document.relativePath),
              mode: 'edit',
@@ -336,7 +314,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
  
    const closeFloatingItems = useCallback(
      (visibleIds: string[]) => {
-@@ -1550,6 +1620,18 @@ export function FloatingTerminalPanel({
+@@ -1860,6 +1931,18 @@ export function FloatingTerminalPanel({
                  if (!source) {
                    return
                  }
@@ -355,7 +333,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
                  createBrowserTab(FLOATING_TERMINAL_WORKTREE_ID, source.url, {
                    ...buildDuplicatedBrowserTabOptions(source),
                    targetGroupId: activeGroup?.id,
-@@ -1570,6 +1652,26 @@ export function FloatingTerminalPanel({
+@@ -1880,6 +1963,26 @@ export function FloatingTerminalPanel({
            />
          </div>
  
@@ -386,7 +364,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowse
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowser.tsx
 +++ orca-server/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowser.tsx
-@@ -27,6 +27,16 @@ type RemoteFileBrowserProps = (
+@@ -29,6 +29,16 @@ type RemoteFileBrowserProps = (
    initialPath?: string
    onSelect: (path: string) => void
    onCancel: () => void
@@ -403,7 +381,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowse
  }
  
  const FILE_HINT_MS = 2000
-@@ -48,8 +58,17 @@ export function RemoteFileBrowser({
+@@ -54,8 +64,17 @@ export function RemoteFileBrowser({
    runtimeEnvironmentId,
    initialPath = '~',
    onSelect,
@@ -421,26 +399,27 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowse
 +  )
    const [resolvedPath, setResolvedPath] = useState('')
    const [entries, setEntries] = useState<DirEntry[]>([])
-   const [loading, setLoading] = useState(true)
-@@ -443,12 +462,24 @@ export function RemoteFileBrowser({
+   const [pathFlavor, setPathFlavor] = useState<FilesystemPathFlavor>('posix')
+@@ -453,12 +472,25 @@ export function RemoteFileBrowser({
          clickTimerRef.current = null
          if (entry.isDirectory) {
-           navigate(joinPath(listParentPath, entry.name))
+           navigate(joinPath(listParentPath, entry.name, pathFlavor))
 +        } else if (fileMode && isSelectableFile(entry.name)) {
 +          // Why: in file mode the file IS the selection — no second confirm step, which
 +          // is how a native open dialog behaves.
-+          onSelect(joinPath(listParentPath, entry.name))
++          onSelect(joinPath(listParentPath, entry.name, pathFlavor))
          } else {
            triggerFileHint()
          }
        }, 220)
      },
--    [navigate, triggerFileHint, listParentPath, preview?.loading]
+-    [navigate, triggerFileHint, listParentPath, preview?.loading, pathFlavor]
 +    [
 +      navigate,
 +      triggerFileHint,
 +      listParentPath,
 +      preview?.loading,
++      pathFlavor,
 +      fileMode,
 +      isSelectableFile,
 +      onSelect
@@ -448,7 +427,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowse
    )
  
    const handleRowDoubleClick = useCallback(
-@@ -727,26 +758,34 @@ export function RemoteFileBrowser({
+@@ -762,26 +794,34 @@ export function RemoteFileBrowser({
          title={fileHint ? undefined : resolvedPath}
        >
          {fileHint
@@ -502,36 +481,36 @@ Index: orca-server/lib/orca/src/renderer/src/components/terminal-pane/pty-connec
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
 +++ orca-server/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
-@@ -238,6 +238,7 @@ import {
+@@ -283,6 +283,7 @@ import {
    getExecutionHostIdForWorktree,
    getSettingsForWorktreeRuntimeOwner
  } from '@/lib/worktree-runtime-owner'
 +import { getWebClientLocalFallbackEnvironmentId } from '@/lib/floating-workspace-runtime-owner'
  import { CLIENT_PLATFORM } from '@/lib/new-workspace'
  import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
- import { resolveAgentStatusTerminalTitle } from '@/lib/agent-status-terminal-title'
-@@ -3232,6 +3233,7 @@ export function connectPanePty(
+ import { resolveAgentResumeLaunchTarget } from '@/lib/agent-resume-launch-target'
+@@ -3444,6 +3445,7 @@ export function connectPanePty(
      : mirroredRuntimeEnvironmentId
        ? mirroredRuntimeEnvironmentId
        : null
 +  const webClientLocalFallbackEnvironmentId = getWebClientLocalFallbackEnvironmentId(state)
-   // Why: an SSH host nested under a HUB is execution identity, not permission for the paired client to dial that host.
-   const connectionId =
-     !terminalOwnerUnresolved && runtimeEnvironmentId === null
-@@ -3525,7 +3527,15 @@ export function connectPanePty(
-       )
-     : runtimeEnvironmentId
-       ? createRemoteRuntimePtyTransport(runtimeEnvironmentId, transportOptions)
--      : createIpcPtyTransport(transportOptions)
-+      : // Why: the IPC fallback encodes "no named runtime, therefore the shell is on
-+        // THIS machine" — true for a desktop app, never true for a web client, whose
-+        // window.api.pty.spawn is a rejecting stub. Reaching it there is always a
-+        // dead end, so address the runtime that served the page instead of throwing.
-+        // Ownership should normally resolve before this; see
-+        // getWebClientLocalFallbackEnvironmentId for why it sometimes does not.
-+        (webClientLocalFallbackEnvironmentId
-+          ? createRemoteRuntimePtyTransport(webClientLocalFallbackEnvironmentId, transportOptions)
-+          : createIpcPtyTransport(transportOptions))
+   // Why: host-agnostic synthetic ids (floating terminal, inline setup panels) have no repo
+   // row by design, and a worktree row stamped 'local' proves its host on its own — both are
+   // resolved-local, not pending hydration (#10151). Only when nothing names the host does
+@@ -3878,7 +3880,15 @@ export function connectPanePty(
+         )
+       : runtimeEnvironmentId
+         ? createRemoteRuntimePtyTransport(runtimeEnvironmentId, transportOptions)
+-        : createIpcPtyTransport(transportOptions)
++        : // Why: the IPC fallback encodes "no named runtime, therefore the shell is on
++          // THIS machine" — true for a desktop app, never true for a web client, whose
++          // window.api.pty.spawn is a rejecting stub. Reaching it there is always a
++          // dead end, so address the runtime that served the page instead of throwing.
++          // Ownership should normally resolve before this; see
++          // getWebClientLocalFallbackEnvironmentId for why it sometimes does not.
++          (webClientLocalFallbackEnvironmentId
++            ? createRemoteRuntimePtyTransport(webClientLocalFallbackEnvironmentId, transportOptions)
++            : createIpcPtyTransport(transportOptions))
    const canSendDesktopQueryReply = (): boolean => {
      const ptyId = transport.getPtyId()
      return !ptyId || !isPtyLocked(ptyId)
@@ -582,7 +561,7 @@ Index: orca-server/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation
  import { detectLanguage } from './language-detect'
  import type { AppState } from '@/store/types'
  import { focusTerminalTabSurface } from './focus-terminal-tab-surface'
-@@ -14,10 +15,13 @@ type FloatingWorkspaceTerminalStore = Pi
+@@ -15,10 +16,13 @@ type FloatingWorkspaceTerminalStore = Pi
  
  type FloatingWorkspaceBrowserStore = Pick<
    AppState,
@@ -598,7 +577,7 @@ Index: orca-server/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation
  
  export async function createFloatingWorkspaceTerminalTab(
    store: FloatingWorkspaceTerminalStore,
-@@ -41,8 +45,24 @@ export async function createFloatingWork
+@@ -47,8 +51,24 @@ export async function createFloatingWork
    const targetGroupId = store.activeGroupIdByWorktree[FLOATING_TERMINAL_WORKTREE_ID]
    const url = store.browserDefaultUrl ?? 'about:blank'
  
@@ -625,7 +604,7 @@ Index: orca-server/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation
    return store.createBrowserTab(FLOATING_TERMINAL_WORKTREE_ID, url, {
      title: translate('auto.lib.floating.workspace.tab.creation.f3785eddc2', 'New Browser Tab'),
      focusAddressBar: true,
-@@ -61,11 +81,12 @@ export async function createFloatingWork
+@@ -67,11 +87,12 @@ export async function createFloatingWork
    if (!floatingMarkdownDirectory) {
      return
    }
@@ -639,7 +618,7 @@ Index: orca-server/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation
    )
    if (!fileInfo) {
      return
-@@ -78,7 +99,7 @@ export async function createFloatingWork
+@@ -84,7 +105,7 @@ export async function createFloatingWork
      {
        preview: false,
        targetGroupId,
@@ -652,31 +631,32 @@ Index: orca-server/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
 +++ orca-server/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
-@@ -5,6 +5,7 @@ import type { AppState } from '@/store/t
- import { getRuntimeEnvironmentIdForWorktree } from './worktree-runtime-owner'
+@@ -10,6 +10,7 @@ import {
+ } from './worktree-runtime-owner'
  import { resolveWorktreeOperationRouteResult } from './worktree-operation-route'
  import { getSingleFocusedRuntimeEnvironmentId } from './single-runtime-legacy-owner'
 +import { getWebClientLocalFallbackEnvironmentId } from './floating-workspace-runtime-owner'
  
  export type TerminalWorktreeRoute = {
    runtimeEnvironmentId: string | null
-@@ -28,7 +29,15 @@ export function resolveTerminalWorktreeR
+@@ -74,11 +75,16 @@ export function resolveTerminalHostOwner
    // the active runtime — so a remote skill install lands on that runtime — falling back to local
    // when none is focused, instead of failing them closed.
    if (isEphemeralSetupTerminalWorktreeId(worktreeId)) {
--    return { runtimeEnvironmentId: getSingleFocusedRuntimeEnvironmentId(state) }
 +    // Why the extra fallback: getSingleFocusedRuntimeEnvironmentId refuses to answer
 +    // unless exactly one environment is saved AND it is the focused one — a sensible
 +    // guard for a desktop app, but its "fall back to local" outcome is unreachable in a
 +    // web client, where local means a rejecting pty.spawn stub. The orchestration skill
 +    // installer runs in one of these terminals.
-+    return {
-+      runtimeEnvironmentId:
-+        getSingleFocusedRuntimeEnvironmentId(state) ?? getWebClientLocalFallbackEnvironmentId(state)
-+    }
+     return resolveFloatingScopeOwnership(
+       state,
+       worktreeId,
+       purpose,
+-      getSingleFocusedRuntimeEnvironmentId(state)
++      getSingleFocusedRuntimeEnvironmentId(state) ?? getWebClientLocalFallbackEnvironmentId(state)
+     )
    }
    const resolution = resolveWorktreeOperationRouteResult(state, worktreeId)
-   if (resolution.kind === 'resolved') {
 Index: orca-server/lib/orca/src/renderer/src/lib/web-client-location.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/lib/web-client-location.ts
@@ -707,7 +687,7 @@ Index: orca-server/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
  import type { ExecutionHostId } from '../../../shared/execution-host'
  import type { GlobalSettings, Worktree } from '../../../shared/types'
  import { parseWorkspaceKey } from '../../../shared/workspace-scope'
-@@ -12,6 +17,10 @@ import {
+@@ -13,6 +18,10 @@ import {
  } from './worktree-runtime-owner-index'
  import { getSingleFocusedRuntimeEnvironmentId } from './single-runtime-legacy-owner'
  import {
@@ -718,7 +698,7 @@ Index: orca-server/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
    getExecutionHostIdForFolderWorkspace,
    getExplicitRuntimeEnvironmentIdForFolderWorkspace,
    getRuntimeEnvironmentIdForFolderWorkspace
-@@ -51,7 +60,11 @@ export function getRuntimeEnvironmentIdF
+@@ -62,7 +71,11 @@ export function getRuntimeEnvironmentIdF
      return null
    }
    if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
@@ -729,9 +709,9 @@ Index: orca-server/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
 +    // setup/default-tab automations (launch-worktree-background-terminals).
 +    return getFloatingWorkspaceRuntimeEnvironmentId(state)
    }
-   const workspaceScope = parseWorkspaceKey(worktreeId)
-   if (workspaceScope?.type === 'folder') {
-@@ -149,7 +162,12 @@ export function getExecutionHostIdForWor
+   const activeRoute = resolveActiveWorkspaceRoute(state, worktreeId)
+   if (activeRoute) {
+@@ -164,7 +177,12 @@ export function getExecutionHostIdForWor
      return 'local'
    }
    if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
@@ -743,9 +723,9 @@ Index: orca-server/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
 +      ? toRuntimeExecutionHostId(floatingEnvironmentId)
 +      : LOCAL_EXECUTION_HOST_ID
    }
-   const workspaceScope = parseWorkspaceKey(worktreeId)
-   if (workspaceScope?.type === 'folder') {
-@@ -192,6 +210,12 @@ export function getSettingsForWorktreeRu
+   const activeHostId = getActiveWorkspaceExecutionHostId(state, worktreeId)
+   if (activeHostId) {
+@@ -209,6 +227,12 @@ export function getSettingsForWorktreeRu
  ): Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> {
    return {
      ...state.settings,
@@ -786,7 +766,7 @@ Index: orca-server/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
 +++ orca-server/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
-@@ -33,7 +33,10 @@ import {
+@@ -36,7 +36,10 @@ import {
    withAgentSessionCreateOperationId
  } from './agent-session-create-operation'
  import { parseRemoteRuntimePtyId } from './runtime-terminal-stream'
@@ -795,25 +775,25 @@ Index: orca-server/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
 +  toRuntimeBrowserWorktreeSelector,
 +  toRuntimeWorktreeSelector
 +} from './runtime-worktree-selector'
- import { recordWebSessionFocusIntent } from './web-session-focus-intent'
- import { clearWebSessionCloseIntent, recordWebSessionCloseIntent } from './web-session-close-intent'
  import {
-@@ -416,7 +419,9 @@ export async function createWebRuntimeSe
-     const response = await callEnvironment({
-       method: 'browser.tabCreate',
-       params: {
--        worktree: toRuntimeWorktreeSelector(args.worktreeId),
-+        // Why: `undefined` for the floating workspace — it has no worktree record on the
-+        // runtime, and an unscoped offscreen page is what it wants anyway.
-+        worktree: toRuntimeBrowserWorktreeSelector(args.worktreeId),
-         url: args.url,
-         profileId: args.profileId ?? undefined,
-         // Why: user clicked "New Browser Tab", so mark it active in the snapshot, else the reconcile snaps back to a terminal.
+   clearWebSessionFocusIntentIfMatches,
+   peekWebSessionFocusIntent,
+@@ -544,7 +547,9 @@ export async function createWebRuntimeSe
+       (await callEnvironment({
+         method: 'browser.tabCreate',
+         params: {
+-          worktree: toRuntimeWorktreeSelector(args.worktreeId),
++          // Why: `undefined` for the floating workspace — it has no worktree record on the
++          // runtime, and an unscoped offscreen page is what it wants anyway.
++          worktree: toRuntimeBrowserWorktreeSelector(args.worktreeId),
+           url: args.url,
+           profileId: args.profileId ?? undefined,
+           activate: shouldFocusOnCreate,
 Index: orca-server/lib/orca/src/renderer/src/store/slices/browser.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/store/slices/browser.ts
 +++ orca-server/lib/orca/src/renderer/src/store/slices/browser.ts
-@@ -48,6 +48,7 @@ import {
+@@ -56,6 +56,7 @@ import {
    getExecutionHostIdForWorktree,
    getRuntimeEnvironmentIdForWorktree
  } from '@/lib/worktree-runtime-owner'
@@ -821,8 +801,8 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/browser.ts
  import {
    addAdditionalValidWorkspaceKeys,
    type WorkspaceSessionHydrationOptions
-@@ -664,7 +665,13 @@ export const createBrowserSlice: StateCr
-       return
+@@ -718,7 +719,13 @@ export const createBrowserSlice: StateCr
+       throw new Error(browserAvailability.reason)
      }
      const defaultUrl = state.browserDefaultUrl ?? 'about:blank'
 -    const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
@@ -833,14 +813,14 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/browser.ts
 +    const runtimeEnvironmentId =
 +      getRuntimeEnvironmentIdForWorktree(state, worktreeId) ??
 +      getWebClientLocalFallbackEnvironmentId(state)
-     if (runtimeEnvironmentId) {
-       const { createWebRuntimeSessionBrowserTab } = await import('@/runtime/web-runtime-session')
-       try {
+     if (browserAvailability.provider === 'paired-runtime') {
+       if (!runtimeEnvironmentId) {
+         throw new Error('The paired runtime browser provider is unavailable.')
 Index: orca-server/lib/orca/src/renderer/src/store/slices/runtime-status.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/store/slices/runtime-status.ts
 +++ orca-server/lib/orca/src/renderer/src/store/slices/runtime-status.ts
-@@ -45,6 +45,10 @@ export type RuntimeStatusSlice = {
+@@ -65,6 +65,10 @@ export type RuntimeStatusSlice = {
    retainRuntimeEnvironmentStatuses: (environmentIds: Iterable<string>) => void
    /** Probes one saved runtime and records the latest reachable/unreachable state. */
    refreshRuntimeEnvironmentStatus: (environmentId: string, timeoutMs?: number) => Promise<boolean>
@@ -851,29 +831,31 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/runtime-status.ts
    /** Best-effort: list saved environments and probe each so the sidebar shows
     * live health at boot, before the settings pane is ever opened. */
    hydrateRuntimeEnvironmentStatuses: () => Promise<void>
-@@ -224,15 +228,20 @@ export const createRuntimeStatusSlice: S
-     }
-   },
+@@ -297,6 +301,24 @@ export const createRuntimeStatusSlice: S
+       get().setRuntimeEnvironmentStatus(environmentId, { status, checkedAt: Date.now() })
+     }),
  
--  hydrateRuntimeEnvironmentStatuses: async () => {
++  // Why: the catalog alone, without the status probes the full hydration awaits. In the
++  // browser listing is a localStorage read, so a caller that must not resolve ownership
++  // to local can await this without paying for network round-trips.
 +  hydrateRuntimeEnvironmentCatalog: async () => {
-     let environments: PublicKnownRuntimeEnvironment[]
-     try {
-       environments = await window.api.runtimeEnvironments.list()
-     } catch (err) {
-       console.error('Failed to list runtime environments for status hydration:', err)
--      return
++    let environments: PublicKnownRuntimeEnvironment[]
++    try {
++      environments = await window.api.runtimeEnvironments.list()
++    } catch (err) {
++      console.error('Failed to list runtime environments for status hydration:', err)
++      // Why: mirror the full hydration — a failed read releases catalog waiters
++      // rather than leaving them blocked on a list that will not arrive.
++      set({ runtimeEnvironmentCatalogSettled: true })
 +      return []
-     }
-     get().setRuntimeEnvironments(environments)
++    }
++    get().setRuntimeEnvironments(environments)
 +    return environments
 +  },
 +
-+  hydrateRuntimeEnvironmentStatuses: async () => {
-+    const environments = await get().hydrateRuntimeEnvironmentCatalog()
-     // Why: fire-and-forget per env; one unreachable server must not block the
-     // others, and a failure records a null status rather than nothing.
-     await Promise.allSettled(
+   hydrateRuntimeEnvironmentStatuses: createRuntimeStatusHydration({
+     listEnvironments: () => window.api.runtimeEnvironments.list(),
+     getCurrentEnvironments: () => get().runtimeEnvironments,
 Index: orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/store/slices/settings.ts
@@ -886,21 +868,20 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
  import type { RuntimeStatus } from '../../../../shared/runtime-types'
  import { normalizeTerminalQuickCommands } from '../../../../shared/terminal-quick-commands'
  import { normalizeTerminalCustomThemes } from '../../../../shared/terminal-custom-themes'
-@@ -69,6 +70,14 @@ export const createSettingsSlice: StateC
-       // Why: best-effort boot probe so sidebar host pickers show live runtime
-       // health before the settings pane is ever opened. Fire-and-forget to keep
-       // startup off the network round-trips.
-+      //
-+      // The CATALOG is not best-effort in the browser: it is the only source of "which
-+      // runtime owns this", and an empty one resolves ownership to local — the single
-+      // answer a web client can never act on. Listing is a localStorage read there, so
-+      // awaiting it costs nothing; the status probes stay fire-and-forget either way.
+@@ -179,6 +180,13 @@ export const createSettingsSlice: StateC
+       // Why: coverage is blind to catalog edits from another client or the orca CLI.
+       isRuntimeCatalogListingStale()
+     ) {
++      // Why: the CATALOG is not best-effort in the browser — it is the only source of
++      // "which runtime owns this", and an empty one resolves ownership to local, the
++      // single answer a web client can never act on. Listing is a localStorage read
++      // there, so awaiting it costs nothing; the status probes stay fire-and-forget.
 +      if (isWebClientLocation()) {
 +        await get().hydrateRuntimeEnvironmentCatalog()
 +      }
        void get().hydrateRuntimeEnvironmentStatuses()
-     } catch (err) {
-       console.error('Failed to fetch settings:', err)
+     }
+   },
 Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
@@ -910,10 +891,10 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  } from '../../../preload/api-types'
  import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 +import { floatingWorkspaceToWorktree } from '../../../shared/floating-workspace-worktree'
- import type { AiVaultListArgs, AiVaultListResult } from '../../../shared/ai-vault-types'
- import type {
-   AiVaultPrepareSessionResumeArgs,
-@@ -544,7 +545,18 @@ function createWebPreloadApi(): Partial<
+ import { parseHostAccessLink } from '../../../shared/remote-pairing-address'
+ import { verifyRemotePairingRuntimeStatus } from '../../../shared/remote-pairing-verification'
+ import type { AiVaultDeleteSessionArgs } from '../../../shared/ai-vault-session-deletion'
+@@ -593,7 +594,18 @@ function createWebPreloadApi(): Partial<
          requireActiveEnvironmentOrNull()
            ? callRuntimeResult<string>('floatingWorkspace.resolveCwd', args).catch(() => '')
            : Promise.resolve(''),
@@ -933,7 +914,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        pickFloatingMarkdownDocument: () => Promise.resolve(null),
        // Why: the web tile has no native OS dialog — the picker is the in-app
        // host-fs browser (RemoteFileBrowser), so this native entry stays a no-op.
-@@ -4054,11 +4066,38 @@ async function resolveRuntimeWorktreeByP
+@@ -4446,11 +4458,38 @@ async function resolveRuntimeWorktreeByP
      .filter((entry) => entry.relativePath !== null)
      .sort((a, b) => b.worktree.path.length - a.worktree.path.length)[0]
    if (!match) {
@@ -972,3 +953,208 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  async function resolveRuntimeFilePath(
    filePath: string,
    preferredWorktreePath?: string,
+Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/remote-browser-page-session.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/remote-browser-page-session.ts
++++ orca-server/lib/orca/src/renderer/src/components/browser-pane/remote-browser-page-session.ts
+@@ -22,7 +22,9 @@ export type RemoteBrowserPageHandle = {
+ export type RemoteBrowserPageSessionDeps = {
+   tokens: RemoteBrowserOperationTokens
+   callRpc: RemoteBrowserRpcCall
+-  getWorktreeSelector(): string
++  // Why optional: `worktree` is OptionalString on every browser RPC schema, and the
++  // floating workspace has no worktree record on the runtime — absent means unscoped.
++  getWorktreeSelector(): string | undefined
+   getCurrentUrl(): string
+   readStoredHandle(): RemoteBrowserPageHandle | null
+   writeStoredHandle(handle: RemoteBrowserPageHandle): void
+Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/use-remote-browser-stream-activation.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/use-remote-browser-stream-activation.ts
++++ orca-server/lib/orca/src/renderer/src/components/browser-pane/use-remote-browser-stream-activation.ts
+@@ -9,7 +9,9 @@ type RemoteBrowserStreamActivationOption
+   isActive: boolean
+   lifecycle: Pick<RemoteBrowserStreamLifecycle, 'open'>
+   reopenNonce: number
+-  runtimeWorktree: string
++  // Why optional: the floating workspace resolves to no runtime worktree record, and the
++  // browser RPCs it drives all take `worktree` as OptionalString.
++  runtimeWorktree: string | undefined
+ }
+ 
+ export function useRemoteBrowserStreamActivation({
+Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/remote-browser-screencast-subscription.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/remote-browser-screencast-subscription.ts
++++ orca-server/lib/orca/src/renderer/src/components/browser-pane/remote-browser-screencast-subscription.ts
+@@ -19,7 +19,9 @@ export type RemoteBrowserScreencastSubsc
+ 
+ export type RemoteBrowserScreencastRequest = {
+   environmentId: string
+-  worktree: string
++  // Why optional: `worktree` is OptionalString on the screencast RPC, and the floating
++  // workspace has no worktree record on the runtime — absent means unscoped.
++  worktree: string | undefined
+   pageId: string
+   viewportSize: RemoteBrowserViewportSize | null
+   deviceScaleFactor: number
+Index: orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.test.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/lib/client-creation-action-policy.test.ts
++++ orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.test.ts
+@@ -101,17 +101,19 @@ describe('resolveClientCreationActionPol
+     ).toEqual({ state: 'hidden', reason: MANAGED_BROWSER_UNAVAILABLE_MESSAGE })
+   })
+ 
+-  it('hides web-client floating browsers and mobile emulators as impossible surfaces', () => {
++  // Why this differs from upstream: their web client is a laptop paired to a remote Orca, so the
++  // floating workspace is a real client-local scratch surface and a managed browser there is
++  // impossible. A browser served BY the runtime has no client machine, so the same surface takes
++  // the streaming-capable runtime instead of being hidden. The emulator stays hidden — the web
++  // preload cannot stream its frames from anywhere.
++  it('backs a floating browser with the streaming runtime, and still hides the emulator', () => {
+     const policy = resolveClientCreationActionPolicy({
+       surface: 'paired-web',
+       runtimeStatus: runtimeStatus(['browser.screencast.v1', 'mobile.tasks.v1']),
+       floatingWorkspace: true
+     })
+ 
+-    expect(policy['managed-browser']).toEqual({
+-      state: 'hidden',
+-      reason: FLOATING_BROWSER_UNAVAILABLE_MESSAGE
+-    })
++    expect(policy['managed-browser']).toEqual({ state: 'enabled', provider: 'paired-runtime' })
+     expect(policy['mobile-emulator']).toEqual({
+       state: 'hidden',
+       reason: MOBILE_EMULATOR_UNAVAILABLE_MESSAGE
+@@ -207,4 +209,17 @@ describe('client creation action guards'
+       getClientCreationActionPolicy(state as never, 'ssh-worktree')['managed-browser']
+     ).toEqual({ state: 'hidden', reason: MANAGED_BROWSER_UNAVAILABLE_MESSAGE })
+   })
++
++  it('keeps the floating message when no runtime can stream a browser', () => {
++    const policy = resolveClientCreationActionPolicy({
++      surface: 'paired-web',
++      runtimeStatus: runtimeStatus([]),
++      floatingWorkspace: true
++    })
++
++    expect(policy['managed-browser']).toEqual({
++      state: 'hidden',
++      reason: FLOATING_BROWSER_UNAVAILABLE_MESSAGE
++    })
++  })
+ })
+Index: orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/lib/client-creation-action-policy.ts
++++ orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.ts
+@@ -4,6 +4,7 @@ import type { RuntimeStatus } from '../.
+ import type { AppState } from '@/store/types'
+ import { isPairedWebClientWindow } from './desktop-window-chrome'
+ import { getRuntimeEnvironmentIdForWorktree } from './worktree-runtime-owner'
++import { getFloatingWorkspaceRuntimeEnvironmentId } from './floating-workspace-runtime-owner'
+ 
+ export const MANAGED_BROWSER_UNAVAILABLE_MESSAGE =
+   "Managed browser tabs are unavailable because this web client's paired runtime does not support browser streaming."
+@@ -48,11 +49,19 @@ export function resolveClientCreationAct
+   }
+ 
+   return {
+-    'managed-browser': args.floatingWorkspace
+-      ? { state: 'hidden', reason: FLOATING_BROWSER_UNAVAILABLE_MESSAGE }
+-      : browserStreamingAvailable
+-        ? { state: 'enabled', provider: 'paired-runtime' }
+-        : { state: 'hidden', reason: MANAGED_BROWSER_UNAVAILABLE_MESSAGE },
++    // Why the floating workspace is not special here: upstream hides it because its web client is
++    // a laptop paired to a remote Orca, where floating is a genuinely client-local scratch
++    // surface. A browser served BY the runtime has no client machine at all — hiding it would
++    // leave the surface with no owner rather than a local one. So it takes the same
++    // streaming-capable runtime every other worktree does.
++    'managed-browser': browserStreamingAvailable
++      ? { state: 'enabled', provider: 'paired-runtime' }
++      : {
++          state: 'hidden',
++          reason: args.floatingWorkspace
++            ? FLOATING_BROWSER_UNAVAILABLE_MESSAGE
++            : MANAGED_BROWSER_UNAVAILABLE_MESSAGE
++        },
+     // The web preload cannot stream emulator frames, even when the host can run emulator tasks.
+     'mobile-emulator': { state: 'hidden', reason: MOBILE_EMULATOR_UNAVAILABLE_MESSAGE }
+   }
+@@ -63,8 +72,11 @@ export function getClientCreationActionP
+   worktreeId: string | null
+ ): ClientCreationActionPolicy {
+   const floatingWorkspace = worktreeId === FLOATING_TERMINAL_WORKTREE_ID
++  // Why not null for floating: that hardcodes "the client owns it", which is true for a paired
++  // laptop and impossible for a browser the runtime serves. The floating owner resolver answers
++  // local on the desktop app and the connected runtime in the web client.
+   const runtimeEnvironmentId = floatingWorkspace
+-    ? null
++    ? getFloatingWorkspaceRuntimeEnvironmentId(state)
+     : worktreeId
+       ? getRuntimeEnvironmentIdForWorktree(state, worktreeId)
+       : (state.settings?.activeRuntimeEnvironmentId?.trim() ?? null)
+Index: orca-server/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.test.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.test.ts
++++ orca-server/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.test.ts
+@@ -4,7 +4,6 @@ import { folderWorkspaceKey } from '../.
+ import type { AppState } from '../types'
+ import { createTestStore, makeWorktree, seedStore, TEST_REPO } from './store-test-helpers'
+ import {
+-  FLOATING_BROWSER_UNAVAILABLE_MESSAGE,
+   MANAGED_BROWSER_UNAVAILABLE_MESSAGE
+ } from '@/lib/client-creation-action-policy'
+ 
+@@ -144,13 +143,18 @@ describe('Cmd+J lifted creation actions'
+     expect(store.getState().browserTabsByWorktree['wt-1'] ?? []).toEqual([])
+   })
+ 
+-  it('rejects floating browsers while preserving floating terminal creation', async () => {
+-    createWebRuntimeSessionBrowserTabMock.mockResolvedValue(false)
+-    createWebRuntimeSessionTerminalMock.mockResolvedValue(false)
++  // Why this differs from upstream: they hide the floating browser and keep the floating terminal
++  // client-local, which is right for a laptop paired to a remote Orca. A browser served BY the
++  // runtime has no client machine, so both surfaces belong to that runtime — a "local" floating
++  // terminal there would spawn against a rejecting pty stub.
++  it('creates both floating surfaces on the runtime that served the page', async () => {
++    createWebRuntimeSessionBrowserTabMock.mockResolvedValue(true)
++    createWebRuntimeSessionTerminalMock.mockResolvedValue(true)
+     const store = createTestStore()
+     seedStore(store, {
+       activeWorktreeId: FLOATING_TERMINAL_WORKTREE_ID,
+       settings: { activeRuntimeEnvironmentId: 'runtime-1' } as AppState['settings'],
++      runtimeStatusByEnvironmentId: browserCapableRuntimeStatus('runtime-1'),
+       groupsByWorktree: {
+         [FLOATING_TERMINAL_WORKTREE_ID]: [
+           {
+@@ -164,15 +168,21 @@ describe('Cmd+J lifted creation actions'
+       activeGroupIdByWorktree: { [FLOATING_TERMINAL_WORKTREE_ID]: 'group-1' }
+     })
+ 
+-    await expect(store.getState().openNewBrowserTabInActiveWorkspace('group-1')).rejects.toThrow(
+-      FLOATING_BROWSER_UNAVAILABLE_MESSAGE
+-    )
++    await store.getState().openNewBrowserTabInActiveWorkspace('group-1')
+     await store.getState().openNewTerminalTabInActiveWorkspace('group-1')
+ 
+-    expect(createWebRuntimeSessionBrowserTabMock).not.toHaveBeenCalled()
+-    expect(createWebRuntimeSessionTerminalMock).not.toHaveBeenCalled()
+-    expect(store.getState().browserTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? []).toEqual([])
+-    expect(store.getState().tabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? []).toHaveLength(1)
++    expect(createWebRuntimeSessionBrowserTabMock).toHaveBeenCalledWith(
++      expect.objectContaining({
++        worktreeId: FLOATING_TERMINAL_WORKTREE_ID,
++        environmentId: 'runtime-1'
++      })
++    )
++    expect(createWebRuntimeSessionTerminalMock).toHaveBeenCalledWith(
++      expect.objectContaining({
++        worktreeId: FLOATING_TERMINAL_WORKTREE_ID,
++        environmentId: 'runtime-1'
++      })
++    )
+   })
+ 
+   it('does not fall back to a local terminal tab when paired-web creation fails', async () => {

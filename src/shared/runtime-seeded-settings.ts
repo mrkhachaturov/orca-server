@@ -1,13 +1,26 @@
 import { z } from 'zod'
 import { normalizeAppIconId } from './app-icon'
 import {
-  normalizeLeftSidebarAppearanceMode,
   normalizeLeftSidebarTintColor,
   normalizeLeftSidebarTintOpacity
 } from './left-sidebar-appearance'
 import { normalizeOpenInApplications } from './open-in-applications'
 import { normalizeUiLanguage } from './ui-language'
-import type { GlobalSettings, OpenInApplication } from './types'
+import type { GlobalSettings, LeftSidebarAppearanceMode, OpenInApplication } from './types'
+
+const LEFT_SIDEBAR_APPEARANCE_MODES: readonly LeftSidebarAppearanceMode[] = [
+  'default',
+  'match-terminal',
+  'tinted'
+]
+
+/** Clamps to the setting's union, like its siblings: a hand-edited store must not fail the whole
+ *  seed. Ours because the setting ships without a normalizer. */
+export function normalizeLeftSidebarAppearanceMode(value: unknown): LeftSidebarAppearanceMode {
+  return LEFT_SIDEBAR_APPEARANCE_MODES.includes(value as LeftSidebarAppearanceMode)
+    ? (value as LeftSidebarAppearanceMode)
+    : 'default'
+}
 
 /**
  * `command` is a shell command a DESKTOP client executes, and seeding travels runtime → client,

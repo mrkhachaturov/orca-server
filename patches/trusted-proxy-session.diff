@@ -85,7 +85,7 @@ Index: orca-server/lib/orca/src/main/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/index.ts
 +++ orca-server/lib/orca/src/main/index.ts
-@@ -1525,6 +1525,8 @@ type ServeOptions = {
+@@ -1819,6 +1819,8 @@ type ServeOptions = {
    mobilePairing: boolean
    recipeJson: boolean
    projectRoot: string | null
@@ -94,7 +94,7 @@ Index: orca-server/lib/orca/src/main/index.ts
  }
  
  function getServeOptions(argv = process.argv): ServeOptions {
-@@ -1552,7 +1554,8 @@ function getServeOptions(argv = process.
+@@ -1846,7 +1848,8 @@ function getServeOptions(argv = process.
      noPairing: argv.includes('--serve-no-pairing'),
      mobilePairing: argv.includes('--serve-mobile-pairing'),
      recipeJson: argv.includes('--serve-recipe-json'),
@@ -104,7 +104,7 @@ Index: orca-server/lib/orca/src/main/index.ts
    }
  }
  
-@@ -2358,7 +2361,10 @@ app.whenReady().then(async () => {
+@@ -2978,7 +2981,10 @@ void app.whenReady().then(async () => {
            preferPinnedWsPort: true
          }
        : {}),
@@ -238,7 +238,7 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/ws-transport.ts
    }
  
    onMessage(handler: WebSocketMessageHandler): void {
-@@ -163,7 +168,12 @@ export class WebSocketTransport implemen
+@@ -172,7 +177,12 @@ export class WebSocketTransport implemen
  
    private createHttpServer(): HttpServer | HttpsServer {
      const requestListener = this.staticRoot
@@ -256,9 +256,9 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/runtime-rpc.ts
 +++ orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
-@@ -54,6 +54,10 @@ type OrcaRuntimeRpcServerOptions = {
-   // Why: true when the caller pinned a port (`orca serve --port`) so bind order prefers it over a stale STA-1511 fallback (#8535).
-   preferPinnedWsPort?: boolean
+@@ -73,6 +73,10 @@ type OrcaRuntimeRpcServerOptions = {
+   // Only `orca serve` (explicit remote opt-in) and E2E set this; the desktop app widens lazily on pairing.
+   exposeNetworkByDefault?: boolean
    webClientRoot?: string
 +  // Why: reverse-proxy (Coder) front. Bind loopback only + serve the pairing offer over /trusted-session so a proxied browser opens the E2EE channel without a URL-fragment token. Loopback reachability is the proof the request came through the trusted proxy.
 +  trustedProxy?: boolean
@@ -267,34 +267,34 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    // Why: test-only overrides for the two constants below; production must not pass these (defaults set by §3.1).
    keepaliveIntervalMs?: number
    longPollCap?: number
-@@ -447,6 +451,8 @@ export class OrcaRuntimeRpcServer {
-   private readonly wsPort: number
+@@ -487,6 +491,8 @@ export class OrcaRuntimeRpcServer {
    private readonly preferPinnedWsPort: boolean
+   private readonly exposeNetworkByDefault: boolean
    private readonly webClientRoot: string | undefined
 +  private readonly trustedProxy: boolean
 +  private readonly trustedProxyAddress: string | null
-   private readonly authToken = randomBytes(24).toString('hex')
-   private readonly keepaliveIntervalMs: number
-   private readonly longPollCap: number
-@@ -484,6 +490,8 @@ export class OrcaRuntimeRpcServer {
-     wsPort = DEFAULT_WS_PORT,
+   // Why: STA-2370 — the host the WS listener is currently bound to, so pairing can widen loopback→all-interfaces once.
+   private wsBoundHost: string | null = null
+   // Why: STA-2370 — in-flight widen so concurrent pairing requests share a single rebind.
+@@ -545,6 +551,8 @@ export class OrcaRuntimeRpcServer {
      preferPinnedWsPort = false,
+     exposeNetworkByDefault = false,
      webClientRoot,
 +    trustedProxy = false,
 +    trustedProxyAddress = null,
      keepaliveIntervalMs = KEEPALIVE_INTERVAL_MS,
-     longPollCap = LONG_POLL_CAP
-   }: OrcaRuntimeRpcServerOptions) {
-@@ -496,6 +504,8 @@ export class OrcaRuntimeRpcServer {
-     this.wsPort = wsPort
+     longPollCap = LONG_POLL_CAP,
+     metadataOwnershipPollMs = RUNTIME_METADATA_OWNERSHIP_POLL_MS
+@@ -559,6 +567,8 @@ export class OrcaRuntimeRpcServer {
      this.preferPinnedWsPort = preferPinnedWsPort
+     this.exposeNetworkByDefault = exposeNetworkByDefault
      this.webClientRoot = webClientRoot
 +    this.trustedProxy = trustedProxy
 +    this.trustedProxyAddress = trustedProxyAddress
      this.keepaliveIntervalMs = keepaliveIntervalMs
      this.longPollCap = longPollCap
-     // Why: derived, not configurable — the reservation must hold for whatever cap a caller picks.
-@@ -591,6 +601,19 @@ export class OrcaRuntimeRpcServer {
+     this.metadataOwnershipPollMs = metadataOwnershipPollMs
+@@ -659,6 +669,19 @@ export class OrcaRuntimeRpcServer {
      return ws?.endpoint ?? null
    }
  
@@ -314,33 +314,45 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    createPairingOffer(args: {
      address?: string | null
      name?: string
-@@ -914,10 +937,15 @@ export class OrcaRuntimeRpcServer {
-         this.e2eeKeypair = pairingIdentity.e2eeKeypair
-         this.pairingInitializationFailure = null
-         try {
-+          // Why: trusted-proxy mode binds loopback only, so the only way a packet reaches this port is through the front proxy (Coder), which already enforced auth.
-+          const wsHost = this.trustedProxy ? '127.0.0.1' : '0.0.0.0'
-           const wsTransport = new WebSocketTransport({
--            host: '0.0.0.0',
-+            host: wsHost,
-             port: this.wsPort,
-             staticRoot: this.webClientRoot,
-+            ...(this.trustedProxy && this.webClientRoot
-+              ? { trustedSessionProvider: (): string | null => this.buildTrustedSessionOffer() }
-+              : {}),
-             // Why: stable fallback port across restarts keeps paired devices' endpoints valid (STA-1511); wsPort 0 = random (E2E).
-             ...(this.wsPort !== 0 ? { fallbackPort: readWsFallbackPort(this.userDataPath) } : {}),
-             ...(this.preferPinnedWsPort ? { preferPinnedPort: true } : {})
-@@ -980,7 +1008,8 @@ export class OrcaRuntimeRpcServer {
-           activeTransports.push(wsTransport)
-           transportsMeta.push({
-             kind: 'websocket',
--            endpoint: `ws://0.0.0.0:${wsTransport.resolvedPort}`
-+            // Why: report the actual bind host — a trusted-proxy loopback bind advertised as 0.0.0.0 misleads operators reading orca_server_ready.
-+            endpoint: `ws://${wsHost}:${wsTransport.resolvedPort}`
-           })
-         } catch (error) {
-           // Why: WebSocket transport is supplementary; on failure (e.g. port in use) continue with Unix socket only.
+@@ -1242,6 +1265,12 @@ export class OrcaRuntimeRpcServer {
+   // A grant minted for "This computer only" is excluded: its client is a browser on this machine, so
+   // counting it would republish the runtime on every interface one restart after the user declined that.
+   private resolveInitialWebSocketBindHost(): string {
++    // Why: trusted-proxy mode treats the loopback bind as proof the front proxy already
++    // authenticated, so it must outrank exposeNetworkByDefault — `orca serve` sets that and
++    // would otherwise republish the runtime on every interface.
++    if (this.trustedProxy) {
++      return WS_BIND_HOST_LOOPBACK
++    }
+     if (this.exposeNetworkByDefault) {
+       return WS_BIND_HOST_ALL_INTERFACES
+     }
+@@ -1269,6 +1298,11 @@ export class OrcaRuntimeRpcServer {
+       host: options.host,
+       port: options.port,
+       staticRoot: this.webClientRoot,
++      // Why: the offer is only reachable over the loopback bind the trusted proxy fronts, and
++      // only meaningful when a web client is being served at all.
++      ...(this.trustedProxy && this.webClientRoot
++        ? { trustedSessionProvider: (): string | null => this.buildTrustedSessionOffer() }
++        : {}),
+       ...(options.fallbackPort !== undefined ? { fallbackPort: options.fallbackPort } : {}),
+       ...(options.preferPinnedPort ? { preferPinnedPort: true } : {})
+     })
+@@ -1363,7 +1397,12 @@ export class OrcaRuntimeRpcServer {
+     if (
+       !this.enableWebSocket ||
+       this.stopping ||
+-      this.wsBoundHost === WS_BIND_HOST_ALL_INTERFACES
++      this.wsBoundHost === WS_BIND_HOST_ALL_INTERFACES ||
++      // Why: trusted mode treats the loopback bind as proof the front proxy already
++      // authenticated. Widening for a pairing offer would publish the runtime on every
++      // interface with no authenticator in front of it, so the offer advertises the
++      // proxy address instead and the listener stays where the trust argument holds.
++      this.trustedProxy
+     ) {
+       return
+     }
 Index: orca-server/lib/orca/src/renderer/src/web/main.tsx
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/main.tsx
@@ -420,7 +432,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-pairing.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-pairing.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-pairing.ts
-@@ -74,6 +74,36 @@ export function decideWebPairingStartup(
+@@ -75,6 +75,36 @@ export function decideWebPairingStartup(
      : { kind: 'show-connect', initialPairingInput: null }
  }
  
@@ -461,7 +473,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -110,7 +110,11 @@ import {
+@@ -121,7 +121,11 @@ import {
    updateStoredEnvironmentRuntimeId,
    type StoredWebRuntimeEnvironment
  } from './web-runtime-environment'
@@ -471,10 +483,10 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 +  parseWebPairingInput,
 +  sameOriginWebSocketEndpoint
 +} from './web-pairing'
+ import { copyClipboardTextViaExecCommand } from './web-clipboard-copy-fallback'
  import { WebRuntimeClient } from './web-runtime-client'
- import { RuntimeRpcCallQueuePool } from '../../../shared/runtime-rpc-call-queue'
- import {
-@@ -3280,10 +3284,46 @@ async function getRemoteRuntimeStatus():
+ import { isWebRuntimeUnauthorizedError } from './web-runtime-client-error'
+@@ -3626,13 +3630,49 @@ async function getRemoteRuntimeStatus():
    return callRuntimeResult<RuntimeStatus>('status.get', undefined, 15_000)
  }
  
@@ -510,6 +522,9 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 +}
 +
  function getClientForEnvironment(environment: StoredWebRuntimeEnvironment): WebRuntimeClient {
+   if (manuallyDisconnectedEnvironmentIds.has(environment.id)) {
+     throw new Error('runtime_manually_disconnected')
+   }
    if (!activeClient || activeClientEnvironmentId !== environment.id) {
      activeClient?.close()
 -    activeClient = new WebRuntimeClient(getPreferredWebPairingOffer(environment))
@@ -526,7 +541,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-runtime-client.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
-@@ -90,7 +90,11 @@ export class WebRuntimeClient {
+@@ -96,7 +96,11 @@ export class WebRuntimeClient {
    private readonly waiters: { resolve: () => void; reject: (error: Error) => void }[] = []
    private readonly serverPublicKey: Uint8Array
  
@@ -539,7 +554,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
      this.serverPublicKey = publicKeyFromBase64(pairing.publicKeyB64)
      this.openConnection()
    }
-@@ -645,6 +649,7 @@ export class WebRuntimeClient {
+@@ -659,6 +663,7 @@ export class WebRuntimeClient {
    }
  
    private setState(next: WebRuntimeConnectionState): void {
@@ -547,10 +562,10 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
      this.state = next
      if (next === 'connected') {
        this.replayInterruptedSubscriptions()
-@@ -654,6 +659,10 @@ export class WebRuntimeClient {
+@@ -668,6 +673,10 @@ export class WebRuntimeClient {
        }
      } else if (next === 'auth-failed') {
-       this.rejectAllWaiters(new Error('Unauthorized. Pair this web client again.'))
+       this.rejectAllWaiters(createWebRuntimeUnauthorizedError())
 +      // Why: fire only on the transition — the close path re-asserts auth-failed and must not retrigger recovery.
 +      if (previous !== 'auth-failed') {
 +        this.hooks.onAuthFailed?.()

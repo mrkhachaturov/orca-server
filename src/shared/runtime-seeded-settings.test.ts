@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { RUNTIME_SEEDED_SETTING_KEYS, pickRuntimeSeededSettings } from './runtime-seeded-settings'
 import {
+  RUNTIME_SEEDED_SETTING_KEYS,
   normalizeLeftSidebarAppearanceMode,
+  pickRuntimeSeededSettings
+} from './runtime-seeded-settings'
+import {
   normalizeLeftSidebarTintColor,
   normalizeLeftSidebarTintOpacity
 } from './left-sidebar-appearance'

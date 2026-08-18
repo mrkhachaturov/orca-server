@@ -26,7 +26,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.test.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
-@@ -188,6 +188,103 @@ describe('web before-unload persistence'
+@@ -230,6 +230,103 @@ describe('web before-unload persistence'
    })
  })
  
@@ -134,7 +134,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -529,6 +529,7 @@ function createWebPreloadApi(): Partial<
+@@ -575,6 +575,7 @@ function createWebPreloadApi(): Partial<
          // guarantees immediate browser-local durability for the final snapshot.
          for (const { state, hostId } of sessions) {
            writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(state))
@@ -142,7 +142,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
          }
          writeJson(UI_STORAGE_KEY, mergeWebUIState(readLocalWebUIState(), ui))
        },
-@@ -740,6 +741,7 @@ function createWebPreloadApi(): Partial<
+@@ -831,6 +832,7 @@ function createWebPreloadApi(): Partial<
        get: (hostId) => Promise.resolve(getStoredWorkspaceSession(hostId)),
        set: async (session, hostId) => {
          writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(session))
@@ -150,7 +150,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        },
        patch: async (patch: WorkspaceSessionPatch, hostId) => {
          writeJson(
-@@ -749,12 +751,14 @@ function createWebPreloadApi(): Partial<
+@@ -840,12 +842,14 @@ function createWebPreloadApi(): Partial<
              ...patch
            })
          )
@@ -165,7 +165,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        }
      },
      onboarding: {
-@@ -3822,12 +3826,67 @@ function getStoredWorkspaceSession(hostI
+@@ -4204,12 +4208,67 @@ function getStoredWorkspaceSession(hostI
    // Why: replaying browser-local terminal handles first creates stale remote PTYs; mirror host session-tabs instead.
    return sanitizeWebRuntimeWorkspaceSession({
      ...getDefaultWorkspaceSession(),

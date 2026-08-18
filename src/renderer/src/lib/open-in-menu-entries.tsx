@@ -20,7 +20,7 @@ export type OpenInMenuEntry = {
 }
 
 export function getWorktreeOpenInEntries(
-  openInApplications: OpenInApplication[],
+  openInApplications: readonly OpenInApplication[],
   fileManagerLabel: string
 ): OpenInMenuEntry[] {
   return [

@@ -16,7 +16,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.test.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.test.ts
-@@ -856,6 +856,17 @@ function syncSinglePty(
+@@ -915,6 +915,17 @@ function syncSinglePty(
    })
  }
  
@@ -34,7 +34,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.test.ts
  function makeDeferred(): { promise: Promise<void>; resolve: () => void } {
    let resolve!: () => void
    const promise = new Promise<void>((next) => {
-@@ -1062,6 +1073,34 @@ class InMemoryOrchestrationMessages {
+@@ -1155,6 +1166,34 @@ class InMemoryOrchestrationMessages {
      }
    }
  
@@ -69,7 +69,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.test.ts
    close(): void {}
  }
  
-@@ -16100,6 +16139,126 @@ describe('OrcaRuntimeService', () => {
+@@ -19325,6 +19364,166 @@ describe('OrcaRuntimeService', () => {
      }
    })
  
@@ -95,7 +95,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.test.ts
 +
 +      expect(write).toHaveBeenCalledWith(
 +        'pty-1',
-+        expect.stringContaining('Subject: ping to the active session')
++        expect.stringContaining('orchestration message')
 +      )
 +      await vi.advanceTimersByTimeAsync(500)
 +      expect(write).toHaveBeenCalledWith('pty-1', '\r')
@@ -103,7 +103,47 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.test.ts
 +      const unread = db.getUnreadMessages(handle)
 +      expect(unread).toHaveLength(1)
 +      expect(unread[0].read).toBe(0)
-+      expect(unread[0].delivered_at).not.toBeNull()
++      // Why toBeNull: v1.4.184 types a pointer ("You have N orchestration messages") and stamps
++      // lastPointedMessageSequenceByHandle instead of delivered_at, so the row stays undelivered
++      // for a `check` to claim. Upstream's own sibling tests assert the same.
++      expect(unread[0].delivered_at).toBeNull()
++      db.close()
++    } finally {
++      vi.useRealTimers()
++    }
++  })
++
++  it('pushes run-mailbox mail to a headless terminal on idle', async () => {
++    vi.useFakeTimers()
++    try {
++      const runtime = new OrcaRuntimeService(store)
++      const db = new InMemoryOrchestrationMessages()
++      const write = vi.fn().mockReturnValue(true)
++      setInMemoryOrchestrationMessages(runtime, db)
++      runtime.setPtyController({
++        write,
++        kill: vi.fn(),
++        getForegroundProcess: async () => null
++      })
++      const leafId = '11111111-1111-4111-8111-111111111111'
++      runtime.syncWindowGraph(HEADLESS_RUNTIME_WINDOW_ID, { tabs: [], leaves: [] })
++      runtime.preAllocateHandleForPty('pty-1')
++      runtime.registerPty('pty-1', TEST_WORKTREE_ID, null, { tabId: 'tab-1', leafId })
++      // Why the run mailbox and not the pane's: a coordinator addresses `run:<id>`, which is a
++      // separate row set. The leaf path delivers both; the PTY path must too.
++      db.setRun({
++        id: 'run-1',
++        coordinator_handle: 'term_other',
++        coordinator_pane_key: `tab-1:${leafId}`
++      })
++      db.insertMessage({ from: 'term_sender', to: 'run:run-1', subject: 'run mail' })
++
++      runtime.onPtyData('pty-1', '\x1b]0;Codex working\x07', 100)
++      runtime.onPtyData('pty-1', '\x1b]0;Codex done\x07', 101)
++      await vi.advanceTimersByTimeAsync(500)
++
++      // The pane's own mailbox is empty, so any write at all proves the run mailbox was pushed.
++      expect(write).toHaveBeenCalledWith('pty-1', expect.stringContaining('orchestration message'))
 +      db.close()
 +    } finally {
 +      vi.useRealTimers()
@@ -131,7 +171,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.test.ts
 +      // which throws terminal_handle_stale with no graph and swallowed the push.
 +      runtime.deliverPendingMessagesForHandle(handle)
 +
-+      expect(write).toHaveBeenCalledWith('pty-1', expect.stringContaining('Subject: hello'))
++      expect(write).toHaveBeenCalledWith('pty-1', expect.stringContaining('orchestration message'))
 +      await vi.advanceTimersByTimeAsync(500)
 +      expect(write).toHaveBeenCalledWith('pty-1', '\r')
 +      db.close()
@@ -165,7 +205,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.test.ts
 +      await vi.advanceTimersByTimeAsync(500)
 +
 +      const injections = write.mock.calls.filter(
-+        (c) => typeof c[1] === 'string' && c[1].includes('Subject: once only')
++        (c) => typeof c[1] === 'string' && c[1].includes('orchestration message')
 +      ).length
 +      expect(injections).toBe(1)
 +      db.close()
@@ -200,7 +240,30 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -1206,6 +1206,13 @@ type RuntimePtyWorktreeRecord = {
+@@ -1274,6 +1274,22 @@ function hasRuntimeAutomationUpdateValue
+   return Object.hasOwn(updates, key) && updates[key] !== undefined
+ }
+ 
++/** Push-on-idle delivery needs exactly this much of a target. A renderer leaf answers it, and so
++ *  does the PTY record that carries the pane when `orca serve` publishes no graph — so the one
++ *  delivery implementation, with its in-flight serialization, waiter filtering, sequence guard and
++ *  liveness probe, serves both instead of the browser getting a thinner copy. */
++type MessageDeliveryTarget = {
++  handle: string | null
++  ptyId: string | null
++  writable: boolean
++  /** Seeded `idle` from a restore cannot authorize a write; only a live observation can. */
++  isLiveIdle: () => boolean
++  isCursorAgentTarget: () => boolean
++  /** Current state by the same identity — graph resync replaces leaf objects, and a same-id
++   *  respawn replaces PTY records, so a captured one goes stale mid-flight. */
++  reread: () => MessageDeliveryTarget | null
++}
++
+ type RuntimeLeafRecord = RuntimeSyncedLeaf & {
+   ptyGeneration: number
+   connected: boolean
+@@ -1371,6 +1387,13 @@ type RuntimePtyWorktreeRecord = {
    tailWaitState?: TerminalTailWaitState
  }
  
@@ -214,8 +277,8 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  type TerminalCreateOptions = {
    command?: string
    claudeAgentTeamsSourceCommand?: string
-@@ -8225,6 +8232,13 @@ export class OrcaRuntimeService {
-       ptyRecordChanged = prevTitle !== normalizedTitle || prevStatus !== agentStatus
+@@ -10495,6 +10518,13 @@ export class OrcaRuntimeService {
+       ptyRecordChanged = prevTitle !== recordedTitle || prevStatus !== agentStatus
        if (agentStatus === 'idle' && prevStatus !== 'idle') {
          this.resolvePtyTuiIdleWaiters(pty, ptyId)
 +        // Why: the leaf loop below is the only other push-on-idle trigger, and it
@@ -228,7 +291,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        }
        const shouldDelayMobileSnapshot =
          ptyRecordChanged &&
-@@ -10948,7 +10962,8 @@ export class OrcaRuntimeService {
+@@ -13844,7 +13874,8 @@ export class OrcaRuntimeService {
        this.retireMobileSessionSurfacesForPty(ptyId, incarnationId, exactSurfaces)
      }
  
@@ -238,9 +301,9 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        this.detachedPreAllocatedLeaves.delete(ptyId)
        leaf.connected = false
        leaf.writable = false
-@@ -10956,6 +10971,16 @@ export class OrcaRuntimeService {
-       this.resolveExitWaiters(leaf)
-       this.failActiveDispatchOnExit(leaf, exitCode)
+@@ -13855,6 +13886,16 @@ export class OrcaRuntimeService {
+         this.failActiveDispatchOnExit(leaf, exitCode)
+       }
      }
 +    if (exitedLeaves.length === 0) {
 +      // Why: resolvePtyExitWaiters above already carries terminal waiters onto the
@@ -255,7 +318,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      this.pruneDisconnectedPtyRecords()
    }
  
-@@ -12566,12 +12591,15 @@ export class OrcaRuntimeService {
+@@ -15465,12 +15506,15 @@ export class OrcaRuntimeService {
    // next poll cycle. This catches agent crashes and unexpected exits within
    // milliseconds. The task is set back to 'pending' so it can be re-dispatched.
    private failActiveDispatchOnExit(leaf: RuntimeLeafRecord, exitCode: number): void {
@@ -274,103 +337,259 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        return
      }
  
-@@ -26895,6 +26923,16 @@ export class OrcaRuntimeService {
+@@ -31963,6 +32007,26 @@ export class OrcaRuntimeService {
+   }
  
-   deliverPendingMessagesForHandle(handle: string): void {
-     try {
-+      // Why: same resolution order as sendTerminal — a runtime-owned PTY handle
-+      // (headless serve, no renderer graph) resolves here; getLiveLeafForHandle
-+      // would throw terminal_handle_stale and swallow the send-time push.
-+      const livePty = this.getLivePtyForHandle(handle)
-+      if (livePty) {
-+        if (livePty.pty.lastAgentStatus === 'idle') {
-+          this.deliverPendingMessagesForPty(livePty.pty)
+   deliverPendingMessagesForHandle(handle: string, reservedTypes?: ReadonlySet<string>): void {
++    // Why before the handles check: a pre-allocated handle only enters `handles` when a leaf
++    // adopts it (adoptPreAllocatedHandle), and `orca serve` publishes no graph, so a
++    // browser-served terminal never gets there and every push returned right here. readTerminal
++    // and sendTerminal already resolve the PTY record first for exactly this reason.
++    // Why its own try/catch: getLivePtyForHandle issues a handle record on the way, so it can
++    // throw for a stale id. The leaf path below deliberately swallows that; letting this one
++    // escape would abort the caller's drain and strand every later handle in it.
++    try {
++      const directPty = this.getLivePtyForHandle(handle)
++      if (directPty) {
++        const target = this.ptyDeliveryTarget(directPty.pty)
++        if (target.isLiveIdle()) {
++          this.deliverPendingMessages(target, { mailboxHandle: handle, reservedTypes })
 +        }
 +        return
 +      }
-       const { leaf } = this.getLiveLeafForHandle(handle)
-       if (leaf.lastAgentStatus === 'idle') {
-         this.deliverPendingMessages(leaf)
-@@ -27476,26 +27514,53 @@ export class OrcaRuntimeService {
++    } catch {
++      // Same reasoning as the leaf path: an unpointable handle keeps its mail for a check.
++      return
++    }
+     let terminalHandle = handle
+     if (!this.handles.has(terminalHandle)) {
+       const runId = handle.startsWith('run:') ? handle.slice('run:'.length) : ''
+@@ -31975,14 +32039,12 @@ export class OrcaRuntimeService {
+       terminalHandle = coordinatorHandle
+     }
+     try {
+-      const { leaf } = this.getLiveLeafForHandle(terminalHandle)
+-      // Why lastAgentStatusObservedLive: a cold restore seeds `idle` from the
+-      // title persisted at snapshot time, so an agent that went busy across the
+-      // relaunch still reads idle until its first live frame. Pushing on that
+-      // would type a message plus Enter into a working agent. Seeded state waits
+-      // for a live observation to authorize it.
+-      if (leaf.lastAgentStatus === 'idle' && leaf.lastAgentStatusObservedLive) {
+-        this.deliverPendingMessages(leaf, { mailboxHandle: handle, reservedTypes })
++      const target = this.leafDeliveryTarget(this.getLiveLeafForHandle(terminalHandle).leaf)
++      // Why isLiveIdle: a cold restore seeds `idle` from the title persisted at snapshot time,
++      // so an agent that went busy across the relaunch still reads idle until its first live
++      // frame. Pushing on that would type a message plus Enter into a working agent.
++      if (target.isLiveIdle()) {
++        this.deliverPendingMessages(target, { mailboxHandle: handle, reservedTypes })
+       }
+     } catch {
+       // Unknown/stale handles can't be pointed now; the persisted message stays available via explicit check or future idle delivery.
+@@ -31990,13 +32052,32 @@ export class OrcaRuntimeService {
+   }
+ 
+   private deliverPendingMessagesForLeaf(leaf: RuntimeLeafRecord): void {
+-    this.deliverPendingMessages(leaf)
++    const target = this.leafDeliveryTarget(leaf)
++    this.deliverPendingMessages(target)
+     if (!this._orchestrationDb) {
+       return
+     }
+     const run = this._orchestrationDb.getCurrentRunForPane?.(`${leaf.tabId}:${leaf.leafId}`)
+     if (run) {
+-      this.deliverPendingMessages(leaf, { mailboxHandle: `run:${run.id}` })
++      this.deliverPendingMessages(target, { mailboxHandle: `run:${run.id}` })
++    }
++  }
++
++  /** The PTY-record counterpart, for the idle transitions a headless host observes on a pane
++   *  no leaf claims. Same delivery, same guarantees. */
++  private deliverPendingMessagesForPty(pty: RuntimePtyWorktreeRecord): void {
++    const target = this.ptyDeliveryTarget(pty)
++    this.deliverPendingMessages(target)
++    if (!this._orchestrationDb || !pty.paneKey) {
++      return
++    }
++    // Why the second delivery: mail addressed to the run mailbox is a separate row set from the
++    // pane's own, and deliverPendingMessagesForLeaf pushes both. Without this a coordinator's
++    // run messages wait for an explicit check on a headless host. `paneKey` IS `tabId:leafId`,
++    // which is the key getCurrentRunForPane expects.
++    const run = this._orchestrationDb.getCurrentRunForPane?.(pty.paneKey)
++    if (run) {
++      this.deliverPendingMessages(target, { mailboxHandle: `run:${run.id}` })
+     }
+   }
+ 
+@@ -32636,7 +32717,7 @@ export class OrcaRuntimeService {
+ 
+   private readonly parkedMessageRedeliveriesByPtyId = new Map<
+     string,
+-    Map<string, { leaf: RuntimeLeafRecord; reservedTypes?: ReadonlySet<string> }>
++    Map<string, { target: MessageDeliveryTarget; reservedTypes?: ReadonlySet<string> }>
+   >()
+ 
+   private settlePendingMessageDelivery(
+@@ -32653,7 +32734,7 @@ export class OrcaRuntimeService {
+     }
+     this.parkedMessageRedeliveriesByPtyId.delete(ptyId)
+     for (const [mailboxHandle, delivery] of parked) {
+-      this.deliverPendingMessages(delivery.leaf, {
++      this.deliverPendingMessages(delivery.target, {
+         mailboxHandle,
+         reservedTypes: delivery.reservedTypes
+       })
+@@ -32681,8 +32762,43 @@ export class OrcaRuntimeService {
+   }
  
    // Why: push-on-idle delivery is event-driven (no polling) because the runtime owns both the message store and terminal status detection.
-   private deliverPendingMessages(leaf: RuntimeLeafRecord): void {
--    if (!this._orchestrationDb) {
-+    const handle = this.handleByLeafKey.get(this.getLeafKey(leaf.tabId, leaf.leafId))
-+    if (!handle || !leaf.writable || !leaf.ptyId) {
++  /** What push-on-idle delivery needs of a target, so one implementation serves both a renderer
++   *  leaf and — where `orca serve` publishes no graph — the PTY record that carries the pane. */
++  private leafDeliveryTarget(leaf: RuntimeLeafRecord): MessageDeliveryTarget {
++    return {
++      handle: this.handleByLeafKey.get(this.getLeafKey(leaf.tabId, leaf.leafId)) ?? null,
++      ptyId: leaf.ptyId,
++      writable: leaf.writable,
++      isLiveIdle: () => leaf.lastAgentStatus === 'idle' && leaf.lastAgentStatusObservedLive,
++      isCursorAgentTarget: () =>
++        isCursorAgentOrchestrationTarget(leaf, this.tabs.get(leaf.tabId)?.title),
++      reread: () => {
++        const current = this.leaves.get(this.getLeafKey(leaf.tabId, leaf.leafId))
++        return current ? this.leafDeliveryTarget(current) : null
++      }
++    }
++  }
++
++  private ptyDeliveryTarget(pty: RuntimePtyWorktreeRecord): MessageDeliveryTarget {
++    return {
++      // Why the fallback: a handle pre-allocated for a spawn is not in handleByPtyId until the
++      // record adopts it — the same pair every other PTY-side handle lookup here uses.
++      handle: this.handleByPtyId.get(pty.ptyId) ?? this.findHandleForPtyRecord(pty.ptyId) ?? null,
++      ptyId: pty.ptyId,
++      // Why connected and not `writable`: a PTY record has no renderer pane to be read-only,
++      // so the live process IS the writability question.
++      writable: pty.connected,
++      isLiveIdle: () => pty.lastAgentStatus === 'idle' && pty.lastAgentStatusObservedLive,
++      isCursorAgentTarget: () => isCursorAgentOrchestrationPtyTarget(pty),
++      reread: () => {
++        const current = this.ptysById.get(pty.ptyId)
++        return current ? this.ptyDeliveryTarget(current) : null
++      }
++    }
++  }
++
+   private deliverPendingMessages(
+-    leaf: RuntimeLeafRecord,
++    target: MessageDeliveryTarget,
+     options: {
+       mailboxHandle?: string
+       reservedTypes?: ReadonlySet<string>
+@@ -32693,24 +32809,24 @@ export class OrcaRuntimeService {
        return
      }
  
 -    const handle = this.handleByLeafKey.get(this.getLeafKey(leaf.tabId, leaf.leafId))
--    if (!handle) {
-+    this.injectPendingMessages(handle, leaf.ptyId, {
-+      isCursorAgentTarget: () => {
-+        const tabTitle = this.tabs.get(leaf.tabId)?.title
-+        return isCursorAgentOrchestrationTarget(leaf, tabTitle)
-+      },
-+      isStillWritable: () => leaf.writable
-+    })
-+  }
-+
-+  // Why: `orca serve` publishes an empty renderer graph (HEADLESS_RUNTIME_WINDOW_ID)
-+  // and the web client's syncWindowGraph is a stub, so a browser-served terminal has
-+  // a PTY record and a handle but never a leaf. Every write path already resolves
-+  // getLivePtyForHandle before the leaf; push-on-idle was the one that did not, which
-+  // is why orchestration in the Coder tile degraded to "go tell each agent to check".
-+  private deliverPendingMessagesForPty(pty: RuntimePtyWorktreeRecord): void {
-+    const handle = this.handleByPtyId.get(pty.ptyId) ?? this.findHandleForPtyRecord(pty.ptyId)
-+    if (!handle || !pty.connected) {
++    const handle = target.handle
+     if (!handle) {
+       return
+     }
+     const mailboxHandle = options.mailboxHandle ?? handle
+ 
+-    if (leaf.ptyId && this.messageDeliveryFlightsByPtyId.has(leaf.ptyId)) {
+-      let parked = this.parkedMessageRedeliveriesByPtyId.get(leaf.ptyId)
++    if (target.ptyId && this.messageDeliveryFlightsByPtyId.has(target.ptyId)) {
++      let parked = this.parkedMessageRedeliveriesByPtyId.get(target.ptyId)
+       if (!parked) {
+         parked = new Map()
+-        this.parkedMessageRedeliveriesByPtyId.set(leaf.ptyId, parked)
++        this.parkedMessageRedeliveriesByPtyId.set(target.ptyId, parked)
+       }
+       const priorReservedTypes = parked.get(mailboxHandle)?.reservedTypes
+       const reservedTypes =
+         priorReservedTypes || options.reservedTypes
+           ? new Set([...(priorReservedTypes ?? []), ...(options.reservedTypes ?? [])])
+           : undefined
+-      parked.set(mailboxHandle, { leaf, reservedTypes })
++      parked.set(mailboxHandle, { target, reservedTypes })
        return
      }
  
--    const unread = this._orchestrationDb.getUndeliveredUnreadMessages(handle)
--    if (unread.length === 0) {
-+    this.injectPendingMessages(handle, pty.ptyId, {
-+      isCursorAgentTarget: () => isCursorAgentOrchestrationPtyTarget(pty),
-+      isStillWritable: () => pty.connected
-+    })
-+  }
-+
-+  private injectPendingMessages(
-+    handle: string,
-+    ptyId: string,
-+    target: { isCursorAgentTarget: () => boolean; isStillWritable: () => boolean }
-+  ): void {
-+    if (!this._orchestrationDb) {
+@@ -32731,7 +32847,7 @@ export class OrcaRuntimeService {
        return
      }
  
 -    if (!leaf.writable || !leaf.ptyId) {
-+    const unread = this._orchestrationDb.getUndeliveredUnreadMessages(handle)
-+    if (unread.length === 0) {
++    if (!target.writable || !target.ptyId) {
+       return
+     }
+     const newestSequence = unread.at(-1)?.sequence
+@@ -32745,12 +32861,12 @@ export class OrcaRuntimeService {
+     if (
+       !options.skipAbsenceProbe &&
+       this.ptyController?.probePtyLiveness &&
+-      !this.controllerKnowsPtyIsLive(leaf.ptyId)
++      !this.controllerKnowsPtyIsLive(target.ptyId)
+     ) {
+       // Why: a fire-and-forget write to a prior process's ptyId reports success
+       // and would mark these delivered while losing them. Proven absence keeps
+       // them queued for a future surface; unknown liveness still delivers.
+-      const probedPtyId = leaf.ptyId
++      const probedPtyId = target.ptyId
+       // Why: triggers arriving mid-probe must not each arm a continuation — the
+       // Every continuation would re-read the same unread rows. The single armed
+       // continuation re-reads fresh rows when it fires, so nothing is lost.
+@@ -32761,7 +32877,7 @@ export class OrcaRuntimeService {
+       void this.isLeafPtyProvenAbsent(probedPtyId)
+         .then((absent) => {
+           this.probeDeferredDeliveryPtyIds.delete(probedPtyId)
+-          if (!absent && leaf.ptyId === probedPtyId) {
++          if (!absent && target.reread()?.ptyId === probedPtyId) {
+             // Why a macrotask and not the stale reservation snapshot: a `remote:`
+             // pty answers the probe null before its first await, so this chain can
+             // settle in microtasks and overtake the resumption of a check resolved
+@@ -32776,13 +32892,9 @@ export class OrcaRuntimeService {
+               // window keeps ptyId identical and makes the leaf writable again, so
+               // an id-only check would type the pointer plus Enter into a process
+               // whose idle was never observed. Re-read the live-idle gate.
+-              const currentLeaf = this.leaves.get(this.getLeafKey(leaf.tabId, leaf.leafId))
+-              if (
+-                currentLeaf?.ptyId === probedPtyId &&
+-                currentLeaf.lastAgentStatus === 'idle' &&
+-                currentLeaf.lastAgentStatusObservedLive
+-              ) {
+-                this.deliverPendingMessages(currentLeaf, {
++              const current = target.reread()
++              if (current?.ptyId === probedPtyId && current.isLiveIdle()) {
++                this.deliverPendingMessages(current, {
+                   mailboxHandle,
+                   skipAbsenceProbe: true
+                 })
+@@ -32796,7 +32908,7 @@ export class OrcaRuntimeService {
        return
      }
  
-     const payload = formatMessagesForInjection(unread)
--    const wrote = this.ptyController?.write(leaf.ptyId, payload) ?? false
-+    const wrote = this.ptyController?.write(ptyId, payload) ?? false
-     if (!wrote) {
-       return
-     }
-@@ -27506,8 +27571,7 @@ export class OrcaRuntimeService {
-       return
-     }
+-    const deliveryPtyId = leaf.ptyId
++    const deliveryPtyId = target.ptyId
+     const flight: { enterTimer: ReturnType<typeof setTimeout> | null } = { enterTimer: null }
+     this.messageDeliveryFlightsByPtyId.set(deliveryPtyId, flight)
+     // Why: every sync outcome — failed write, Cursor branch, or a throw —
+@@ -32811,8 +32923,7 @@ export class OrcaRuntimeService {
+       }
+       this.lastPointedMessageSequenceByHandle.set(mailboxHandle, newestSequence)
  
--    const tabTitle = this.tabs.get(leaf.tabId)?.title
--    if (isCursorAgentOrchestrationTarget(leaf, tabTitle)) {
-+    if (target.isCursorAgentTarget()) {
-       // Why: Cursor Agent treats injected PTY text as editable prompt input, so submitting must stay under user control.
-       this._orchestrationDb.markAsDelivered(unread.map((m) => m.id))
-       return
-@@ -27515,10 +27579,9 @@ export class OrcaRuntimeService {
- 
-     // Why: Claude Code treats a large PTY write as a paste and swallows a \r in the same write; send Enter separately after a delay, stamping delivered_at only once \r is confirmed.
-     // Important (design doc §3.2, feedback #2): stamp delivered_at, not read — read means "a check-caller consumed this"; flipping it would hide the message from check --unread.
--    const ptyId = leaf.ptyId
-     setTimeout(() => {
-       try {
--        if (!leaf.writable) {
-+        if (!target.isStillWritable()) {
-           return
-         }
-         const submitted = this.ptyController?.write(ptyId, '\r') ?? false
+-      const tabTitle = this.tabs.get(leaf.tabId)?.title
+-      if (isCursorAgentOrchestrationTarget(leaf, tabTitle)) {
++      if (target.isCursorAgentTarget()) {
+         // Why: Cursor Agent treats injected PTY text as editable prompt input, so submitting must stay under user control.
+         return
+       }
+@@ -32826,8 +32937,8 @@ export class OrcaRuntimeService {
+           if (this.messageDeliveryFlightsByPtyId.get(deliveryPtyId) !== flight) {
+             return
+           }
+-          const currentLeaf = this.leaves.get(this.getLeafKey(leaf.tabId, leaf.leafId))
+-          if (!currentLeaf || currentLeaf.ptyId !== deliveryPtyId || !currentLeaf.writable) {
++          const current = target.reread()
++          if (!current || current.ptyId !== deliveryPtyId || !current.writable) {
+             return
+           }
+           this.ptyController?.write(deliveryPtyId, '\r')

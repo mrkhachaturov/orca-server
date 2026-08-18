@@ -26,7 +26,7 @@ Index: orca-server/lib/orca/src/main/ipc/app.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/ipc/app.ts
 +++ orca-server/lib/orca/src/main/ipc/app.ts
-@@ -314,6 +314,10 @@ export function registerAppHandlers(stor
+@@ -316,6 +316,10 @@ export function registerAppHandlers(stor
    ipcMain.handle('app:pickFloatingWorkspaceDirectory', (event) =>
      pickFloatingWorkspaceDirectory(event, store)
    )
@@ -127,7 +127,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -118,6 +118,7 @@ import type {
+@@ -188,6 +188,7 @@ import type {
    GitHubCreateIssueFields,
    GitHubOwnerRepo,
    GlobalSettings,
@@ -135,9 +135,9 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    PersistedUIState,
    Project,
    ProjectUpdateArgs,
-@@ -767,6 +768,11 @@ import {
+@@ -884,6 +885,11 @@ import {
  import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
- import { isENOENT } from '../ipc/filesystem-auth'
+ import { isENOENT, invalidateAuthorizedRootsCache } from '../ipc/filesystem-auth'
  import {
 +  resolveFloatingTerminalCwd as resolveFloatingTerminalCwdOnHost,
 +  grantFloatingWorkspaceDirectory as grantFloatingWorkspaceDirectoryOnHost,
@@ -147,7 +147,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
    createSetupRunnerScript,
    getDefaultTabCommandTrustContent,
    getDefaultTabsLaunch,
-@@ -15198,6 +15204,32 @@ export class OrcaRuntimeService {
+@@ -18637,6 +18643,32 @@ export class OrcaRuntimeService {
      return scanNestedRepos({ path, options: { timeoutMs: 15_000 } })
    }
  
@@ -177,22 +177,22 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 +    await grantFloatingWorkspaceDirectoryOnHost(this.floatingWorkspaceDirectoryStore(), dirPath)
 +  }
 +
-   async browseServerDir(pathValue: string): Promise<{ resolvedPath: string; entries: DirEntry[] }> {
-     const dirPath = resolveServerBrowsePath(pathValue)
-     const dirStat = await stat(dirPath)
+   async browseServerDir(pathValue: string): Promise<{
+     resolvedPath: string
+     entries: DirEntry[]
 Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/index.ts
 +++ orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
-@@ -39,6 +39,7 @@ import { PAIRING_METHODS } from './pairi
+@@ -40,6 +40,7 @@ import { PAIRING_METHODS } from './pairi
  import { MOBILE_PAIRING_METHODS } from './mobile-pairing'
  import { UPDATER_METHODS } from './updater'
  import { CLI_METHODS } from './cli'
 +import { FLOATING_WORKSPACE_METHODS } from './floating-workspace'
  import { AGENT_SESSION_METHODS } from './agent-session'
+ import { ARTIFACT_METHODS } from './artifacts'
  
- // Why: a flat manifest keeps registration order explicit and provides one
-@@ -85,5 +86,6 @@ export const ALL_RPC_METHODS: readonly R
+@@ -89,5 +90,6 @@ export const ALL_RPC_METHODS: readonly R
    ...PAIRING_METHODS,
    ...MOBILE_PAIRING_METHODS,
    ...UPDATER_METHODS,
@@ -204,7 +204,7 @@ Index: orca-server/lib/orca/src/preload/api-types.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/preload/api-types.ts
 +++ orca-server/lib/orca/src/preload/api-types.ts
-@@ -963,6 +963,10 @@ export type AppApi = {
+@@ -978,6 +978,10 @@ export type AppApi = {
    /** Opens a native directory picker and authorizes the selected directory
     *  for Floating Workspace markdown file creation. */
    pickFloatingWorkspaceDirectory: () => Promise<string | null>
@@ -219,7 +219,7 @@ Index: orca-server/lib/orca/src/preload/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/preload/index.ts
 +++ orca-server/lib/orca/src/preload/index.ts
-@@ -475,6 +475,8 @@ const api = {
+@@ -543,6 +543,8 @@ const api = {
        ipcRenderer.invoke('app:pickFloatingMarkdownDocument'),
      pickFloatingWorkspaceDirectory: (): Promise<string | null> =>
        ipcRenderer.invoke('app:pickFloatingWorkspaceDirectory'),
@@ -289,7 +289,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
 +++ orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
-@@ -1,14 +1,18 @@
+@@ -1,16 +1,19 @@
  import { useEffect, useState } from 'react'
  import { FolderOpen } from 'lucide-react'
 +import { toast } from 'sonner'
@@ -304,11 +304,13 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  import { getFloatingWorkspaceSearchEntries } from './floating-workspace-search'
  import { matchesSettingsSearch } from './settings-search'
  import { useAppStore } from '../../store'
-+import { isWebClientLocation } from '@/lib/web-client-location'
- import { translate } from '@/i18n/i18n'
+-import { translate } from '@/i18n/i18n'
+ import { isWebClientLocation } from '@/lib/web-client-location'
++import { translate } from '@/i18n/i18n'
  
  type FloatingWorkspacePaneProps = {
-@@ -27,7 +31,25 @@ export function getFloatingWorkspaceDire
+   settings: GlobalSettings
+@@ -28,7 +31,25 @@ export function getFloatingWorkspaceDire
    if (!configuredPath || configuredPath === '~') {
      return '~'
    }
@@ -335,9 +337,9 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  }
  
  export function FloatingWorkspacePane({
-@@ -36,6 +58,13 @@ export function FloatingWorkspacePane({
- }: FloatingWorkspacePaneProps): React.JSX.Element | null {
+@@ -38,6 +59,13 @@ export function FloatingWorkspacePane({
    const searchQuery = useAppStore((state) => state.settingsSearchQuery)
+   const includeBrowser = !isWebClientLocation()
    const [resolvedFloatingWorkspacePath, setResolvedFloatingWorkspacePath] = useState('')
 +  const [browsing, setBrowsing] = useState(false)
 +
@@ -349,7 +351,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  
    useEffect(() => {
      let cancelled = false
-@@ -58,13 +87,38 @@ export function FloatingWorkspacePane({
+@@ -60,13 +88,38 @@ export function FloatingWorkspacePane({
      }
    }, [settings.floatingTerminalCwd])
  
@@ -390,7 +392,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
    }
  
    const directoryInputValue = getFloatingWorkspaceDirectoryInputValue({
-@@ -195,6 +249,36 @@ export function FloatingWorkspacePane({
+@@ -197,6 +250,36 @@ export function FloatingWorkspacePane({
            }
          />
        </SearchableSetting>
@@ -431,7 +433,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -35,7 +35,8 @@ import type {
+@@ -42,7 +42,8 @@ import type {
    WorktreeLineage,
    WorkspaceLineage,
    WorkspaceSessionPatch,
@@ -441,7 +443,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  } from '../../../shared/types'
  import type { CliInstallStatus } from '../../../shared/cli-install-types'
  import type { SkillDiscoveryResult } from '../../../shared/skills'
-@@ -533,10 +534,29 @@ function createWebPreloadApi(): Partial<
+@@ -582,10 +583,29 @@ function createWebPreloadApi(): Partial<
        startupDiagnostic: () => Promise.resolve(),
        getKeyboardInputSourceId: () => Promise.resolve(null),
        setUnreadDockBadgeCount: () => Promise.resolve(),

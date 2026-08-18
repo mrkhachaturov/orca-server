@@ -27,7 +27,7 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
 +++ orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
-@@ -57,6 +57,47 @@ describe('client UI RPC methods', () =>
+@@ -58,6 +58,47 @@ describe('client UI RPC methods', () =>
      expect(response).toMatchObject({ ok: true, result: { settings } })
    })
  
@@ -79,7 +79,7 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
 +++ orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
-@@ -12,7 +12,19 @@ export const CLIENT_UI_METHODS: RpcMetho
+@@ -15,7 +15,19 @@ export const CLIENT_UI_METHODS: RpcMetho
    defineMethod({
      name: 'settings.get',
      params: null,
@@ -111,14 +111,15 @@ Index: orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-con
  import {
    ContextMenu,
    ContextMenuContent,
-@@ -11,14 +11,15 @@ import {
+@@ -11,7 +11,6 @@ import {
    ContextMenuTrigger
  } from '@/components/ui/context-menu'
  import { useAppStore } from '@/store'
 -import { OpenInApplicationIcon } from '@/lib/open-in-app-catalog'
  import { translate } from '@/i18n/i18n'
  import { getLocalFileManagerLabel } from '@/lib/local-file-manager-label'
- import {
+ import { NO_OPEN_IN_APPLICATIONS } from '@/lib/open-in-application-selection'
+@@ -19,7 +18,9 @@ import {
    getOpenInEntryAvailability,
    getWorktreeOpenInEntries,
    openOpenInAppsSettings,
@@ -129,7 +130,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-con
  } from '@/components/sidebar/WorktreeOpenInMenu'
  
  type SourceControlEntryContextMenuProps = {
-@@ -72,16 +73,11 @@ export function SourceControlEntryContex
+@@ -75,16 +76,11 @@ export function SourceControlEntryContex
    }, [absolutePath, currentWorktreeId, onRevealInExplorer])
  
    const handleOpenInExternal = useCallback(
@@ -148,7 +149,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-con
      },
      [absolutePath, connectionId]
    )
-@@ -121,16 +117,10 @@ export function SourceControlEntryContex
+@@ -124,16 +120,10 @@ export function SourceControlEntryContex
                return (
                  <ContextMenuItem
                    key={entry.id}
@@ -694,12 +695,13 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
  import { toast } from 'sonner'
  import {
    DropdownMenuItem,
-@@ -11,13 +11,24 @@ import {
+@@ -11,14 +11,25 @@ import {
  import { useAppStore } from '@/store'
  import { isLocalPathOpenBlocked, showLocalPathOpenBlockedToast } from '@/lib/local-path-open-guard'
  import { getLocalFileManagerLabel } from '@/lib/local-file-manager-label'
 -import { OpenInApplicationIcon } from '@/lib/open-in-app-catalog'
  import { getExternalEditorOpenCapability } from '@/lib/external-editor-open-capability'
+ import { NO_OPEN_IN_APPLICATIONS } from '@/lib/open-in-application-selection'
 +import {
 +  getOpenInEntryAvailability,
 +  getWorktreeOpenInEntries,
@@ -721,7 +723,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
  
  type WorktreeOpenInMenuItemsProps = {
    worktreePath: string
-@@ -26,60 +37,6 @@ type WorktreeOpenInMenuItemsProps = {
+@@ -27,60 +38,6 @@ type WorktreeOpenInMenuItemsProps = {
    labelPrefix?: string
  }
  
@@ -733,7 +735,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
 -}
 -
 -export function getWorktreeOpenInEntries(
--  openInApplications: OpenInApplication[],
+-  openInApplications: readonly OpenInApplication[],
 -  fileManagerLabel: string
 -): OpenInMenuEntry[] {
 -  return [
@@ -782,7 +784,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
  function showOpenFailureToast(
    result: Exclude<ShellOpenExternalEditorResult, { ok: true }>,
    remote: boolean
-@@ -245,8 +202,26 @@ export async function openWorktreePath(a
+@@ -246,8 +203,26 @@ export async function openWorktreePath(a
    worktreePath: string
    connectionId?: string | null
    command?: string
@@ -809,7 +811,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
    if (args.target === 'file-manager') {
      if (isLocalPathOpenBlocked(settings, { connectionId: args.connectionId ?? null })) {
        showLocalPathOpenBlockedToast()
-@@ -255,7 +230,8 @@ export async function openWorktreePath(a
+@@ -256,7 +231,8 @@ export async function openWorktreePath(a
    } else {
      const capability = getExternalEditorOpenCapability(settings, {
        connectionId: args.connectionId,
@@ -819,7 +821,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
      })
      if (!capability.allowed) {
        if (capability.reason === 'remote-runtime') {
-@@ -280,16 +256,35 @@ export async function openWorktreePath(a
+@@ -281,16 +257,35 @@ export async function openWorktreePath(a
    }
  }
  
@@ -861,7 +863,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
      },
      [connectionId, worktreePath]
    )
-@@ -316,17 +311,11 @@ export function WorktreeOpenInMenuItems(
+@@ -319,17 +314,11 @@ export function WorktreeOpenInMenuItems(
              key={entry.id}
              onClick={stopMenuPropagation}
              onSelect={() => {
@@ -1067,9 +1069,9 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
 +  normalizeOpenInApplications
 +} from '../../../../shared/open-in-applications'
  import { createSettingsSearchState, type SettingsSearchState } from './settings-search-state'
+ import { isRuntimeCatalogListingStale } from './runtime-status-hydration'
  import { normalizeDisabledTuiAgents } from '../../../../shared/tui-agent-selection'
- import {
-@@ -40,13 +43,6 @@ function normalizeRuntimeEnvironmentId(v
+@@ -48,13 +51,6 @@ function normalizeRuntimeEnvironmentId(v
    return trimmed ? trimmed : null
  }
  
@@ -1080,9 +1082,9 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
 -  )
 -}
 -
- async function verifyRuntimeEnvironmentReachable(environmentId: string | null): Promise<void> {
-   if (!environmentId) {
-     return
+ function normalizeSettingsUpdates(
+   updates: Partial<GlobalSettings>,
+   currentSettings: GlobalSettings | null
 Index: orca-server/lib/orca/src/shared/open-in-applications.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/shared/open-in-applications.test.ts
@@ -1203,7 +1205,7 @@ Index: orca-server/lib/orca/src/shared/types.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/shared/types.ts
 +++ orca-server/lib/orca/src/shared/types.ts
-@@ -2590,6 +2590,11 @@ export type OpenInApplication = {
+@@ -2749,6 +2749,11 @@ export type OpenInApplication = {
    id: string
    label: string
    command: string
