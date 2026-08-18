@@ -17,6 +17,5 @@ open-in-browser-editors.diff
 execution-owner.diff
 headless-orchestration-delivery.diff
 usage-analytics.diff
-agent-status-surface.diff
 agent-cold-restore.diff
 workspace-restore.diff

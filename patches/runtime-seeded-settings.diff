@@ -25,10 +25,10 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -170,6 +170,10 @@ import type {
-   WorkspaceSessionState,
-   DirEntry
+@@ -257,6 +257,10 @@ import type {
+   CodexRateLimitAccountsState
  } from '../../shared/types'
+ import type { TaskSourceContext } from '../../shared/task-source-context'
 +import {
 +  pickRuntimeSeededSettings,
 +  type RuntimeSeededSettingKey
@@ -36,10 +36,10 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
  import {
    LOCAL_EXECUTION_HOST_ID,
-@@ -3096,12 +3100,17 @@ export class OrcaRuntimeService {
-     | 'minimaxGroupId'
-     | 'minimaxUsageModels'
-     | 'prBotAuthorOverrides'
+@@ -3513,12 +3517,17 @@ export class OrcaRuntimeService {
+     // Read-only on purpose: clients preflight the publish capability here, but SettingsUpdate
+     // still omits the key so no RPC caller can grant it to itself.
+     | 'artifactSharingEnabled'
 -  > {
 +  > &
 +    Partial<Pick<GlobalSettings, RuntimeSeededSettingKey>> {
@@ -59,7 +59,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -85,6 +85,7 @@ import {
+@@ -92,6 +92,7 @@ import {
    normalizeOsc52ClipboardDefaultOn,
    osc52ClipboardDefaultOnOverridesPersistedOff
  } from '../../../shared/osc52-clipboard-settings'
@@ -67,7 +67,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import { normalizeTerminalCustomThemes } from '../../../shared/terminal-custom-themes'
  import { normalizeUiLanguage } from '../../../shared/ui-language'
  import { normalizeUsagePercentageDisplay } from '../../../shared/usage-percentage-display'
-@@ -3595,6 +3596,10 @@ function writeStoredSettings(
+@@ -3972,6 +3973,10 @@ function writeStoredSettings(
  }
  
  async function getRuntimeBackedStoredSettings(): Promise<GlobalSettings> {
@@ -78,9 +78,9 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
    const local = getStoredSettings()
    if (!requireActiveEnvironmentOrNull()) {
      return local
-@@ -3624,6 +3629,13 @@ async function getRuntimeBackedStoredSet
-         result.settings.prBotAuthorOverrides
-       )
+@@ -4006,6 +4011,13 @@ async function getRuntimeBackedStoredSet
+     if (typeof result.settings.artifactSharingEnabled === 'boolean') {
+       runtimeSettings.artifactSharingEnabled = result.settings.artifactSharingEnabled
      }
 +    // Why only on a first visit: these are the workspace's DEFAULTS, not its policy. Seeding
 +    // them once gives a provisioned workspace its declared appearance and feature set without
