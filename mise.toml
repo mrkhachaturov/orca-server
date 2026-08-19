@@ -12,7 +12,7 @@ lockfile = true
 bats = "1.14.0"
 hk = "1.53.0"
 jq = "1.8.2"
-node = "24.18.0"
+node = "24.19.0"
 "npm:doctoc" = "2.5.0"
 pkl = "0.32.1"
 
