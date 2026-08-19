@@ -31,6 +31,8 @@ Orca v9.99.999
 
 ## Unreleased
 
+Orca v1.4.184
+
 ### Fixed
 
 - Skill setup cards now build their install command for the machine that will
