@@ -31,6 +31,24 @@ Orca v9.99.999
 
 ## Unreleased
 
+Orca v1.4.184
+
+### Fixed
+
+- Skill setup cards now build their install command for the machine that will
+  run it. The command runs on the server, so a browser on Windows was handed a
+  `cmd.exe` wrapper to paste into the server's shell, and `npx skills update`
+  was silently rewritten into a reinstall. Both followed whichever OS the
+  viewer's browser reported. The server already publishes its platform, so the
+  command asks that instead — the same fix covers a desktop client focused on a
+  remote Orca, where the skill also installs on the server rather than the
+  laptop. Keyboard shortcuts still follow the viewer's own keyboard.
+- **Generate Access Link** works again in the browser. Sharing this server with
+  another client had been dead since v1.4.184: the button waited for a
+  connection address to be chosen, and the web client deliberately hides that
+  choice because the address is the operator's `--pairing-address`. Existing
+  access grants were unaffected.
+
 ## [4.184.0] - 2026-08-18
 
 Orca v1.4.184

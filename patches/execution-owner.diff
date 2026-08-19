@@ -3,7 +3,11 @@ Own the web client's execution without a local machine
 The floating terminal, the Settings skill terminal and floating markdown notes
 all failed in the tile as if no runtime existed - "Local PTYs are unavailable in
 the web client", "No runtime worktree owns <floating>/.orca/templates" - while
-the server showed Connected throughout.
+the server showed Connected throughout. The skill setup card had the mirror
+defect: the terminal ran on the server, but the command it pasted was built for
+whatever OS the viewer's browser reported. From Windows that is
+`cmd.exe /d /s /c "where.exe npx ..."` fed into a Linux shell, and
+`npx skills update` silently rewritten into a reinstall.
 
 Ownership resolution reads "no `runtimeEnvironmentId`" as "therefore this
 machine", which is impossible in a browser the runtime itself serves. It is now
@@ -14,10 +18,19 @@ resolves to the single saved environment. The environment catalog is a
 localStorage list, so it is awaited in the browser rather than left to the
 network status probes - otherwise the boot window resolves to local.
 
+A command's platform is the same ownership question, so it reads the same
+resolver: the runtime publishes `hostPlatform` in its status, which the client
+already stores per environment. The client's own platform answers only when the
+client is the host. Presentation stays the other way round - keyboard modifiers
+follow the viewer's keyboard, never the server.
+
 To test, with no Active Server chosen, open the floating terminal, a Settings
-skill terminal and a floating markdown note in the tile. Covered by
+skill terminal and a floating markdown note in the tile; then open Settings >
+Orchestration from a Windows browser and confirm the install command is the bare
+`npx skills add`, not a `cmd.exe` wrapper. Covered by
 `floating-workspace-runtime-owner.test.ts`,
-`settings-web-runtime-catalog.test.ts` and `web-preload-api.test.ts`.
+`settings-web-runtime-catalog.test.ts`, `web-preload-api.test.ts` and
+`skill-command-execution-host.test.ts`.
 
 
 Deliberate divergence, v1.4.184: upstream's `client-creation-action-policy` hides the floating
@@ -27,6 +40,12 @@ browser served BY the runtime has no client machine, so "local" there means a re
 and no `<webview>`. Both floating surfaces therefore take the runtime that served the page, and the
 two upstream tests asserting the paired-laptop rule are updated with that reason. The mobile
 emulator stays hidden: the web preload cannot stream its frames from anywhere.
+
+Upstream guards the command platform only with `isRemoteRuntimeEnvironmentFocused()`, which skips
+the npx wrapper when a remote runtime is focused. That never fires here — local IS the server, so
+nothing is focused — and it does not cover `normalizeWindowsSkillUpdateCommand`, which rewrites
+`skills update` on a client-reported win32 regardless. Reading the host's own platform fixes both,
+including upstream's paired-laptop case.
 Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
@@ -1158,3 +1177,33 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.t
    })
  
    it('does not fall back to a local terminal tab when paired-web creation fails', async () => {
+Index: orca-server/lib/orca/src/renderer/src/components/settings/CliSkillRuntimeSetup.tsx
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/components/settings/CliSkillRuntimeSetup.tsx
++++ orca-server/lib/orca/src/renderer/src/components/settings/CliSkillRuntimeSetup.tsx
+@@ -11,6 +11,7 @@ import { buildWslLoginShellCommand } fro
+ import { isWslShellName } from '../../../../shared/local-windows-terminal-runtime'
+ import { resolveWindowsShellStartupFamily } from '../../../../shared/windows-terminal-shell'
+ import { getProjectAgentSkillTerminalShellOverride } from '@/lib/project-skill-runtime'
++import { getExecutionHostPlatform } from '@/lib/execution-host-platform'
+ import { useAppStore } from '@/store'
+ import { buildAgentFeatureSkillInstallCommand } from '../../../../shared/agent-feature-install-commands'
+ import { toast } from 'sonner'
+@@ -244,6 +245,17 @@ function isRemoteRuntimeEnvironmentFocus
+ }
+ 
+ function getSkillCommandPlatform(): NodeJS.Platform {
++  // Why: the command runs where the setup terminal spawns — the focused runtime, or in a browser
++  // the server that served the page. Asking the client returns its own OS, which is the host's
++  // only when the client is the host.
++  // Optional like the client accessor below: component tests stub `@/store` without `getState`,
++  // and an unanswerable store means "no host known", not a throw through the render.
++  const storeState = useAppStore.getState?.()
++  const executionHostPlatform = storeState ? getExecutionHostPlatform(storeState) : null
++  if (executionHostPlatform) {
++    return executionHostPlatform
++  }
++
+   const platform =
+     typeof window === 'undefined' ? undefined : window.api?.platform?.get?.()?.platform
+   if (platform) {
