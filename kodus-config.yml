@@ -59,7 +59,9 @@ ignorePaths:
 baseBranches: []
 ignoredTitleKeywords: []
 
-automatedReviewActive: true
+# Off: the server-side review is the half the pre-push hook could not reach, so
+# turning that hook off left it running. Re-run one on demand with `@kody review`.
+automatedReviewActive: false
 
 # Requests changes on critical findings — the four critical rules are the only ones
 # that block. Everything below is advice.
