@@ -473,7 +473,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -121,7 +121,11 @@ import {
+@@ -120,7 +120,11 @@ import {
    updateStoredEnvironmentRuntimeId,
    type StoredWebRuntimeEnvironment
  } from './web-runtime-environment'
@@ -486,7 +486,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import { copyClipboardTextViaExecCommand } from './web-clipboard-copy-fallback'
  import { WebRuntimeClient } from './web-runtime-client'
  import { isWebRuntimeUnauthorizedError } from './web-runtime-client-error'
-@@ -3626,13 +3630,49 @@ async function getRemoteRuntimeStatus():
+@@ -3631,13 +3635,49 @@ async function getRemoteRuntimeStatus():
    return callRuntimeResult<RuntimeStatus>('status.get', undefined, 15_000)
  }
  
