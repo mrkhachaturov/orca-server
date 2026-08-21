@@ -85,7 +85,7 @@ Index: orca-server/lib/orca/src/main/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/index.ts
 +++ orca-server/lib/orca/src/main/index.ts
-@@ -1819,6 +1819,8 @@ type ServeOptions = {
+@@ -1840,6 +1840,8 @@ type ServeOptions = {
    mobilePairing: boolean
    recipeJson: boolean
    projectRoot: string | null
@@ -94,7 +94,7 @@ Index: orca-server/lib/orca/src/main/index.ts
  }
  
  function getServeOptions(argv = process.argv): ServeOptions {
-@@ -1846,7 +1848,8 @@ function getServeOptions(argv = process.
+@@ -1867,7 +1869,8 @@ function getServeOptions(argv = process.
      noPairing: argv.includes('--serve-no-pairing'),
      mobilePairing: argv.includes('--serve-mobile-pairing'),
      recipeJson: argv.includes('--serve-recipe-json'),
@@ -104,7 +104,7 @@ Index: orca-server/lib/orca/src/main/index.ts
    }
  }
  
-@@ -2978,7 +2981,10 @@ void app.whenReady().then(async () => {
+@@ -3005,7 +3008,10 @@ void app.whenReady().then(async () => {
            preferPinnedWsPort: true
          }
        : {}),
@@ -256,7 +256,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/runtime-rpc.ts
 +++ orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
-@@ -73,6 +73,10 @@ type OrcaRuntimeRpcServerOptions = {
+@@ -74,6 +74,10 @@ type OrcaRuntimeRpcServerOptions = {
    // Only `orca serve` (explicit remote opt-in) and E2E set this; the desktop app widens lazily on pairing.
    exposeNetworkByDefault?: boolean
    webClientRoot?: string
@@ -267,7 +267,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    // Why: test-only overrides for the two constants below; production must not pass these (defaults set by §3.1).
    keepaliveIntervalMs?: number
    longPollCap?: number
-@@ -487,6 +491,8 @@ export class OrcaRuntimeRpcServer {
+@@ -489,6 +493,8 @@ export class OrcaRuntimeRpcServer {
    private readonly preferPinnedWsPort: boolean
    private readonly exposeNetworkByDefault: boolean
    private readonly webClientRoot: string | undefined
@@ -276,7 +276,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    // Why: STA-2370 — the host the WS listener is currently bound to, so pairing can widen loopback→all-interfaces once.
    private wsBoundHost: string | null = null
    // Why: STA-2370 — in-flight widen so concurrent pairing requests share a single rebind.
-@@ -545,6 +551,8 @@ export class OrcaRuntimeRpcServer {
+@@ -547,6 +553,8 @@ export class OrcaRuntimeRpcServer {
      preferPinnedWsPort = false,
      exposeNetworkByDefault = false,
      webClientRoot,
@@ -285,7 +285,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
      keepaliveIntervalMs = KEEPALIVE_INTERVAL_MS,
      longPollCap = LONG_POLL_CAP,
      metadataOwnershipPollMs = RUNTIME_METADATA_OWNERSHIP_POLL_MS
-@@ -559,6 +567,8 @@ export class OrcaRuntimeRpcServer {
+@@ -561,6 +569,8 @@ export class OrcaRuntimeRpcServer {
      this.preferPinnedWsPort = preferPinnedWsPort
      this.exposeNetworkByDefault = exposeNetworkByDefault
      this.webClientRoot = webClientRoot
@@ -294,7 +294,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
      this.keepaliveIntervalMs = keepaliveIntervalMs
      this.longPollCap = longPollCap
      this.metadataOwnershipPollMs = metadataOwnershipPollMs
-@@ -659,6 +669,19 @@ export class OrcaRuntimeRpcServer {
+@@ -661,6 +671,19 @@ export class OrcaRuntimeRpcServer {
      return ws?.endpoint ?? null
    }
  
@@ -314,7 +314,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    createPairingOffer(args: {
      address?: string | null
      name?: string
-@@ -1242,6 +1265,12 @@ export class OrcaRuntimeRpcServer {
+@@ -1244,6 +1267,12 @@ export class OrcaRuntimeRpcServer {
    // A grant minted for "This computer only" is excluded: its client is a browser on this machine, so
    // counting it would republish the runtime on every interface one restart after the user declined that.
    private resolveInitialWebSocketBindHost(): string {
@@ -327,7 +327,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
      if (this.exposeNetworkByDefault) {
        return WS_BIND_HOST_ALL_INTERFACES
      }
-@@ -1269,6 +1298,11 @@ export class OrcaRuntimeRpcServer {
+@@ -1271,6 +1300,11 @@ export class OrcaRuntimeRpcServer {
        host: options.host,
        port: options.port,
        staticRoot: this.webClientRoot,
@@ -339,7 +339,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
        ...(options.fallbackPort !== undefined ? { fallbackPort: options.fallbackPort } : {}),
        ...(options.preferPinnedPort ? { preferPinnedPort: true } : {})
      })
-@@ -1363,7 +1397,12 @@ export class OrcaRuntimeRpcServer {
+@@ -1365,7 +1399,12 @@ export class OrcaRuntimeRpcServer {
      if (
        !this.enableWebSocket ||
        this.stopping ||
@@ -473,7 +473,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -121,7 +121,11 @@ import {
+@@ -131,7 +131,11 @@ import {
    updateStoredEnvironmentRuntimeId,
    type StoredWebRuntimeEnvironment
  } from './web-runtime-environment'
@@ -486,7 +486,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import { copyClipboardTextViaExecCommand } from './web-clipboard-copy-fallback'
  import { WebRuntimeClient } from './web-runtime-client'
  import { isWebRuntimeUnauthorizedError } from './web-runtime-client-error'
-@@ -3626,13 +3630,49 @@ async function getRemoteRuntimeStatus():
+@@ -3676,13 +3680,49 @@ async function getRemoteRuntimeStatus():
    return callRuntimeResult<RuntimeStatus>('status.get', undefined, 15_000)
  }
  
@@ -541,7 +541,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-runtime-client.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
-@@ -96,7 +96,11 @@ export class WebRuntimeClient {
+@@ -98,7 +98,11 @@ export class WebRuntimeClient {
    private readonly waiters: { resolve: () => void; reject: (error: Error) => void }[] = []
    private readonly serverPublicKey: Uint8Array
  
@@ -554,7 +554,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
      this.serverPublicKey = publicKeyFromBase64(pairing.publicKeyB64)
      this.openConnection()
    }
-@@ -659,6 +663,7 @@ export class WebRuntimeClient {
+@@ -663,6 +667,7 @@ export class WebRuntimeClient {
    }
  
    private setState(next: WebRuntimeConnectionState): void {
@@ -562,7 +562,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
      this.state = next
      if (next === 'connected') {
        this.replayInterruptedSubscriptions()
-@@ -668,6 +673,10 @@ export class WebRuntimeClient {
+@@ -672,6 +677,10 @@ export class WebRuntimeClient {
        }
      } else if (next === 'auth-failed') {
        this.rejectAllWaiters(createWebRuntimeUnauthorizedError())
