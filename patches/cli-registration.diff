@@ -121,15 +121,15 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -44,6 +44,7 @@ import type {
-   WorkspaceSessionPatch,
-   WorkspaceSessionState
- } from '../../../shared/types'
+@@ -41,6 +41,7 @@ import {
+   type PairingLocalUiField
+ } from '../../../shared/pairing-local-ui-fields'
+ import type { MemorySnapshot, StatsSummary } from '../../../shared/process-stats-types'
 +import type { CliInstallStatus } from '../../../shared/cli-install-types'
- import type { SkillDiscoveryResult } from '../../../shared/skills'
- import type { SkillFreshnessInventory } from '../../../shared/skill-freshness'
- import type { SshConnectionState, SshTarget } from '../../../shared/ssh-types'
-@@ -3030,7 +3031,9 @@ function createPreflightApi(): NonNullab
+ import type { Repo } from '../../../shared/repo-types'
+ import type {
+   WorkspaceSessionPatch,
+@@ -3100,7 +3101,9 @@ function createPreflightApi(): NonNullab
  }
  
  function createCliApi(): NonNullable<Partial<PreloadApi>['cli']> {
@@ -140,7 +140,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
      platform: getBrowserPlatform(),
      commandName: getBrowserPlatform() === 'linux' ? 'orca-ide' : 'orca',
      commandPath: null,
-@@ -3042,15 +3045,40 @@ function createCliApi(): NonNullable<Par
+@@ -3112,15 +3115,40 @@ function createCliApi(): NonNullable<Par
      state: 'unsupported',
      currentTarget: null,
      unsupportedReason: 'launch_mode_unavailable',

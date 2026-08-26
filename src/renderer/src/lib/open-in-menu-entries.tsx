@@ -3,7 +3,8 @@ import { ExternalLink, FolderOpen } from 'lucide-react'
 import { OpenInApplicationIcon } from '@/lib/open-in-app-catalog'
 import { getExternalEditorOpenCapability } from '@/lib/external-editor-open-capability'
 import { isLocalPathOpenBlocked } from '@/lib/local-path-open-guard'
-import type { GlobalSettings, OpenInApplication } from '../../../shared/types'
+import type { GlobalSettings } from '../../../shared/global-settings-types'
+import type { OpenInApplication } from '../../../shared/ui-chrome-types'
 import { translate } from '@/i18n/i18n'
 
 /**
