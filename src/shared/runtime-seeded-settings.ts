@@ -6,7 +6,8 @@ import {
 } from './left-sidebar-appearance'
 import { normalizeOpenInApplications } from './open-in-applications'
 import { normalizeUiLanguage } from './ui-language'
-import type { GlobalSettings, LeftSidebarAppearanceMode, OpenInApplication } from './types'
+import type { GlobalSettings } from './global-settings-types'
+import type { LeftSidebarAppearanceMode, OpenInApplication } from './ui-chrome-types'
 
 const LEFT_SIDEBAR_APPEARANCE_MODES: readonly LeftSidebarAppearanceMode[] = [
   'default',

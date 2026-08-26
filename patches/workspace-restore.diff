@@ -20,121 +20,13 @@ still reopen where it left off.
 To test, open a worktree in the tile, restart the workspace, and reload: that
 worktree should be active. Switch worktrees within a repo and reload again - the
 repo must not be lost. Repeat in a browser with cleared storage. Covered by
-`web-preload-api.test.ts` and
+`web-workspace-restore.test.ts` and
 `web-preload-api-active-workspace-pointer.test.ts`.
-Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
-===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.test.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.test.ts
-@@ -230,6 +230,103 @@ describe('web before-unload persistence'
-   })
- })
- 
-+describe('web workspace restore', () => {
-+  beforeEach(() => {
-+    vi.resetModules()
-+  })
-+
-+  afterEach(() => {
-+    vi.unstubAllGlobals()
-+  })
-+
-+  function mockRuntimeUiSlice(
-+    runtimeCalls: { method: string; params: unknown }[],
-+    ui: Record<string, unknown>
-+  ): void {
-+    vi.doMock('./web-runtime-client', () => ({
-+      WebRuntimeClient: class {
-+        call(method: string, params?: unknown): Promise<RuntimeRpcResponse<unknown>> {
-+          runtimeCalls.push({ method, params })
-+          return Promise.resolve({
-+            id: `call-${runtimeCalls.length}`,
-+            ok: true,
-+            result: { ui: { featureInteractions: {}, contextualToursSeenIds: [], ...ui } },
-+            _meta: { runtimeId: 'runtime-1' }
-+          })
-+        }
-+
-+        close(): void {}
-+      }
-+    }))
-+  }
-+
-+  it('records the active workspace on the host so a fresh browser restores it', async () => {
-+    const writeCalls: { method: string; params: unknown }[] = []
-+    mockRuntimeUiSlice(writeCalls, {})
-+
-+    const before = installBrowserGlobals('Linux')
-+    writeStoredRuntimeEnvironment(before.storage)
-+    const { installWebPreloadApi } = await import('./web-preload-api')
-+    installWebPreloadApi()
-+
-+    await before.window.api.session.set({
-+      activeRepoId: 'repo-1',
-+      activeWorktreeId: 'repo-1::/w/feature'
-+    } as never)
-+
-+    // The pointer upstream's paired-client session read already consumes, finally written.
-+    expect(writeCalls).toEqual([
-+      {
-+        method: 'ui.set',
-+        params: { lastActiveRepoId: 'repo-1', lastActiveWorktreeId: 'repo-1::/w/feature' }
-+      }
-+    ])
-+
-+    // Restart: a browser with no session and no ui of its own, only the pairing.
-+    vi.resetModules()
-+    vi.unstubAllGlobals()
-+    const readCalls: { method: string; params: unknown }[] = []
-+    mockRuntimeUiSlice(readCalls, {
-+      lastActiveRepoId: 'repo-1',
-+      lastActiveWorktreeId: 'repo-1::/w/feature'
-+    })
-+
-+    const after = installBrowserGlobals('Linux')
-+    writeStoredRuntimeEnvironment(after.storage)
-+    const restarted = await import('./web-preload-api')
-+    restarted.installWebPreloadApi()
-+
-+    // Boot order: App.tsx awaits ui.get() before reading the session.
-+    await after.window.api.ui.get()
-+    const restored = await after.window.api.session.get()
-+
-+    expect(after.storage.getItem('orca.web.workspaceSession.v1')).toBeNull()
-+    expect(restored.activeRepoId).toBe('repo-1')
-+    expect(restored.activeWorktreeId).toBe('repo-1::/w/feature')
-+    expect(readCalls.map((call) => call.method)).toEqual(['ui.get'])
-+  }, 15_000)
-+
-+  it('never takes the active workspace from a non-local host partition', async () => {
-+    const runtimeCalls: { method: string; params: unknown }[] = []
-+    mockRuntimeUiSlice(runtimeCalls, {})
-+
-+    const globals = installBrowserGlobals('Linux')
-+    writeStoredRuntimeEnvironment(globals.storage)
-+    const { installWebPreloadApi } = await import('./web-preload-api')
-+    installWebPreloadApi()
-+
-+    await globals.window.api.session.set(
-+      { activeRepoId: 'repo-2', activeWorktreeId: 'repo-2::/w/other' } as never,
-+      'runtime:web-env-1'
-+    )
-+
-+    expect(runtimeCalls).toEqual([])
-+    expect(JSON.parse(globals.storage.getItem('orca.web.ui.v1') ?? '{}')).not.toMatchObject({
-+      lastActiveWorktreeId: 'repo-2::/w/other'
-+    })
-+  }, 15_000)
-+})
-+
- describe('web runtime environment identity', () => {
-   beforeEach(() => {
-     vi.resetModules()
 Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -575,6 +575,7 @@ function createWebPreloadApi(): Partial<
+@@ -589,6 +589,7 @@ function createWebPreloadApi(): Partial<
          // guarantees immediate browser-local durability for the final snapshot.
          for (const { state, hostId } of sessions) {
            writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(state))
@@ -142,7 +34,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
          }
          writeJson(UI_STORAGE_KEY, mergeWebUIState(readLocalWebUIState(), ui))
        },
-@@ -831,6 +832,7 @@ function createWebPreloadApi(): Partial<
+@@ -869,6 +870,7 @@ function createWebPreloadApi(): Partial<
        get: (hostId) => Promise.resolve(getStoredWorkspaceSession(hostId)),
        set: async (session, hostId) => {
          writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(session))
@@ -150,7 +42,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        },
        patch: async (patch: WorkspaceSessionPatch, hostId) => {
          writeJson(
-@@ -840,12 +842,14 @@ function createWebPreloadApi(): Partial<
+@@ -878,12 +880,14 @@ function createWebPreloadApi(): Partial<
              ...patch
            })
          )
@@ -165,7 +57,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        }
      },
      onboarding: {
-@@ -4204,12 +4208,67 @@ function getStoredWorkspaceSession(hostI
+@@ -4353,12 +4357,67 @@ function getStoredWorkspaceSession(hostI
    // Why: replaying browser-local terminal handles first creates stale remote PTYs; mirror host session-tabs instead.
    return sanitizeWebRuntimeWorkspaceSession({
      ...getDefaultWorkspaceSession(),

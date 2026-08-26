@@ -31,6 +31,34 @@ Orca v9.99.999
 
 ## Unreleased
 
+Orca v1.4.188
+
+### Changed
+
+- Update to Orca v1.4.188, four releases on. All twelve patches were
+  re-justified against the new tag and all twelve were kept, one of them
+  rewritten to a quarter of its former size.
+- `headless-orchestration-delivery` is now a projection instead of a parallel
+  implementation. Upstream moved mailbox delivery into modules of its own,
+  gave it a structural target type, and narrowed push-on-idle to a run's
+  mailbox — the one a coordinator addresses. That took over the delivery
+  target the patch used to carry, and its dispatch-failure half, and left one
+  gap behind: a pane `orca serve` never published exists only as a PTY record,
+  and every step of delivery resolves a pane through the renderer's graph. So
+  in the tile a coordinator's mail sat unread until someone went and told that
+  agent to check its own inbox. The PTY record carries the same pane identity
+  and the same live titles, so it is now projected into the shape delivery
+  already accepts, consulted only where the graph has nothing.
+
+### Fixed
+
+- The mobile pairing QR is drawn at its own size again. Orca now reports the
+  code's exact pixel width so the pane can paint one module per two device
+  pixels; the browser was still answering with the older shape, leaving the
+  pane to fall back to a fixed box that resampled the code and made it harder
+  for a phone to read. A picture that fails to encode no longer hides the
+  offer either — the pairing URL stays visible and copyable.
+
 ## [4.184.1] - 2026-08-19
 
 Orca v1.4.184

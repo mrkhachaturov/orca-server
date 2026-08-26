@@ -25,21 +25,21 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -257,6 +257,10 @@ import type {
-   CodexRateLimitAccountsState
- } from '../../shared/types'
+@@ -366,6 +366,10 @@ import type {
+   Worktree
+ } from '../../shared/worktree/types'
  import type { TaskSourceContext } from '../../shared/task-source-context'
 +import {
 +  pickRuntimeSeededSettings,
 +  type RuntimeSeededSettingKey
 +} from '../../shared/runtime-seeded-settings'
- import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
+ import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree/removal'
  import {
    LOCAL_EXECUTION_HOST_ID,
-@@ -3513,12 +3517,17 @@ export class OrcaRuntimeService {
-     // Read-only on purpose: clients preflight the publish capability here, but SettingsUpdate
+@@ -3884,12 +3888,17 @@ export class OrcaRuntimeService {
      // still omits the key so no RPC caller can grant it to itself.
      | 'artifactSharingEnabled'
+     | 'agentSkillSharingEnabled'
 -  > {
 +  > &
 +    Partial<Pick<GlobalSettings, RuntimeSeededSettingKey>> {
@@ -52,14 +52,14 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 +      // workspace's store once and then owns them. Read-only here — the client never writes them
 +      // back, which is what keeps "the workspace's default" from overriding "the user's choice".
 +      ...pickRuntimeSeededSettings(settings),
+       worktreeVisibilityDefaults: settings.worktreeVisibilityDefaults ?? { external: 'hide' },
        defaultTuiAgent: settings.defaultTuiAgent ?? null,
        disabledTuiAgents: settings.disabledTuiAgents ?? [],
-       agentCmdOverrides: settings.agentCmdOverrides ?? {},
 Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -92,6 +92,7 @@ import {
+@@ -102,6 +102,7 @@ import {
    normalizeOsc52ClipboardDefaultOn,
    osc52ClipboardDefaultOnOverridesPersistedOff
  } from '../../../shared/osc52-clipboard-settings'
@@ -67,7 +67,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import { normalizeTerminalCustomThemes } from '../../../shared/terminal-custom-themes'
  import { normalizeUiLanguage } from '../../../shared/ui-language'
  import { normalizeUsagePercentageDisplay } from '../../../shared/usage-percentage-display'
-@@ -3972,6 +3973,10 @@ function writeStoredSettings(
+@@ -4073,6 +4074,10 @@ function writeStoredSettings(
  }
  
  async function getRuntimeBackedStoredSettings(): Promise<GlobalSettings> {
@@ -76,11 +76,11 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 +  // is the one moment we let the workspace's store decide the starting look/feature set.
 +  const isFirstVisit = window.localStorage.getItem(SETTINGS_STORAGE_KEY) === null
    const local = getStoredSettings()
-   if (!requireActiveEnvironmentOrNull()) {
-     return local
-@@ -4006,6 +4011,13 @@ async function getRuntimeBackedStoredSet
-     if (typeof result.settings.artifactSharingEnabled === 'boolean') {
-       runtimeSettings.artifactSharingEnabled = result.settings.artifactSharingEnabled
+   const requestedEnvironment = requireActiveEnvironmentOrNull()
+   if (!requestedEnvironment) {
+@@ -4121,6 +4126,13 @@ async function getRuntimeBackedStoredSet
+     if (typeof result.settings.agentSkillSharingEnabled === 'boolean') {
+       runtimeSettings.agentSkillSharingEnabled = result.settings.agentSkillSharingEnabled
      }
 +    // Why only on a first visit: these are the workspace's DEFAULTS, not its policy. Seeding
 +    // them once gives a provisioned workspace its declared appearance and feature set without
@@ -91,4 +91,4 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 +    }
      const next = mergeSettings(local, runtimeSettings)
      writeStoredSettings(next)
-     return next
+     return settingsForActiveVisibilityOwner(next)

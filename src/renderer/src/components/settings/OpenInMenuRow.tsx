@@ -1,6 +1,6 @@
 import type React from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
-import type { OpenInApplication } from '../../../../shared/types'
+import type { OpenInApplication } from '../../../../shared/ui-chrome-types'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'

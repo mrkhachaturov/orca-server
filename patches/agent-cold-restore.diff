@@ -27,7 +27,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -273,8 +273,14 @@ import { preservedBranchCleanupScopeKey
+@@ -387,8 +387,14 @@ import { preservedBranchCleanupScopeKey
  import { getRegisteredSshState } from '../ipc/ssh'
  import type {
    AgentProviderSessionMetadata,
@@ -42,7 +42,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import type { ExactWorkerProviderSession } from '../../shared/orchestration-worker-output'
  import type { RuntimeClientEvent } from '../../shared/runtime-client-events'
  import { toRuntimeActivateWorktreeEvent } from '../../shared/runtime-client-events'
-@@ -7628,11 +7634,52 @@ export class OrcaRuntimeService {
+@@ -8937,11 +8943,52 @@ export class OrcaRuntimeService {
          let agentStartup: Awaited<
            ReturnType<OrcaRuntimeService['resolveMobileSessionTerminalCommand']>
          > = {}
@@ -97,7 +97,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
              })
            } catch {
              // Why: a disabled or unresolvable agent must not make the tab
-@@ -7651,7 +7698,7 @@ export class OrcaRuntimeService {
+@@ -8960,7 +9007,7 @@ export class OrcaRuntimeService {
              env: agentStartup.env,
              startupCommandDelivery: agentStartup.startupCommandDelivery,
              launchConfig: agentStartup.launchConfig,
@@ -106,7 +106,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
              targetGroupId
            })
          } catch (err) {
-@@ -26674,16 +26721,16 @@ export class OrcaRuntimeService {
+@@ -29091,16 +29138,16 @@ export class OrcaRuntimeService {
        terminalWindowsShell: settings.terminalWindowsShell
      })
      const startupPlan = buildAgentStartupPlan({
@@ -133,7 +133,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      if (!startupPlan) {
        throw new Error(`Could not build launch command for ${opts.agent}.`)
      }
-@@ -26711,6 +26758,36 @@ export class OrcaRuntimeService {
+@@ -29128,6 +29175,36 @@ export class OrcaRuntimeService {
      }
    }
  

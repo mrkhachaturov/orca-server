@@ -27,7 +27,7 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
 +++ orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
-@@ -58,6 +58,47 @@ describe('client UI RPC methods', () =>
+@@ -60,6 +60,47 @@ describe('client UI RPC methods', () =>
      expect(response).toMatchObject({ ok: true, result: { settings } })
    })
  
@@ -79,7 +79,7 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
 +++ orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
-@@ -15,7 +15,19 @@ export const CLIENT_UI_METHODS: RpcMetho
+@@ -16,7 +16,19 @@ export const CLIENT_UI_METHODS: RpcMetho
    defineMethod({
      name: 'settings.get',
      params: null,
@@ -100,74 +100,6 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
    }),
    defineMethod({
      name: 'settings.update',
-Index: orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-control-entry-context-menu.tsx
-===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/right-sidebar/source-control-entry-context-menu.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-control-entry-context-menu.tsx
-@@ -1,5 +1,5 @@
- import React, { useCallback } from 'react'
--import { Copy, ExternalLink, Eye, FolderOpen } from 'lucide-react'
-+import { Copy, Eye, FolderOpen } from 'lucide-react'
- import {
-   ContextMenu,
-   ContextMenuContent,
-@@ -11,7 +11,6 @@ import {
-   ContextMenuTrigger
- } from '@/components/ui/context-menu'
- import { useAppStore } from '@/store'
--import { OpenInApplicationIcon } from '@/lib/open-in-app-catalog'
- import { translate } from '@/i18n/i18n'
- import { getLocalFileManagerLabel } from '@/lib/local-file-manager-label'
- import { NO_OPEN_IN_APPLICATIONS } from '@/lib/open-in-application-selection'
-@@ -19,7 +18,9 @@ import {
-   getOpenInEntryAvailability,
-   getWorktreeOpenInEntries,
-   openOpenInAppsSettings,
--  openWorktreePath
-+  openWorktreeOpenInEntry,
-+  OpenInMenuEntryIcon,
-+  type OpenInMenuEntry
- } from '@/components/sidebar/WorktreeOpenInMenu'
- 
- type SourceControlEntryContextMenuProps = {
-@@ -75,16 +76,11 @@ export function SourceControlEntryContex
-   }, [absolutePath, currentWorktreeId, onRevealInExplorer])
- 
-   const handleOpenInExternal = useCallback(
--    (target: 'file-manager' | 'external-editor', command?: string) => {
-+    (entry: OpenInMenuEntry) => {
-       if (!absolutePath) {
-         return
-       }
--      void openWorktreePath({
--        target,
--        worktreePath: absolutePath,
--        connectionId,
--        command
--      })
-+      void openWorktreeOpenInEntry(entry, { worktreePath: absolutePath, connectionId })
-     },
-     [absolutePath, connectionId]
-   )
-@@ -124,16 +120,10 @@ export function SourceControlEntryContex
-               return (
-                 <ContextMenuItem
-                   key={entry.id}
--                  onSelect={() => handleOpenInExternal(entry.target, entry.command)}
-+                  onSelect={() => handleOpenInExternal(entry)}
-                   disabled={!absolutePath || availability.disabled}
-                 >
--                  {entry.target === 'file-manager' ? (
--                    <FolderOpen className="size-3.5" />
--                  ) : entry.command ? (
--                    <OpenInApplicationIcon application={{ command: entry.command }} size={14} />
--                  ) : (
--                    <ExternalLink className="size-3.5" />
--                  )}
-+                  <OpenInMenuEntryIcon entry={entry} />
-                   <span className="min-w-0 truncate">{entry.label}</span>
-                   {availability.metadata ? (
-                     <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
 Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.test.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.test.ts
@@ -273,12 +205,13 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetti
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.tsx
 +++ orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.tsx
-@@ -1,8 +1,12 @@
+@@ -1,9 +1,13 @@
  import type React from 'react'
  import { useState } from 'react'
 -import { Check, ChevronDown, Pencil, Trash2 } from 'lucide-react'
 +import { Check, ChevronDown } from 'lucide-react'
- import type { GlobalSettings, OpenInApplication } from '../../../../shared/types'
+ import type { GlobalSettings } from '../../../../shared/global-settings-types'
+ import type { OpenInApplication } from '../../../../shared/ui-chrome-types'
 -import { OPEN_IN_APPLICATIONS_MAX } from '../../../../shared/open-in-applications'
 +import {
 +  createOpenInApplicationId,
@@ -288,7 +221,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetti
  import { Button } from '../ui/button'
  import {
    DropdownMenu,
-@@ -11,16 +15,14 @@ import {
+@@ -12,16 +16,14 @@ import {
    DropdownMenuShortcut,
    DropdownMenuTrigger
  } from '../ui/dropdown-menu'
@@ -306,7 +239,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetti
  import { translate } from '@/i18n/i18n'
  
  type OpenInMenuSettingProps = {
-@@ -35,17 +37,22 @@ type OpenInApplicationsDraftState = {
+@@ -36,17 +38,22 @@ type OpenInApplicationsDraftState = {
  
  function createOpenInApplication(): OpenInApplication {
    return {
@@ -334,7 +267,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetti
      label: preset.label,
      command: preset.command
    }
-@@ -70,167 +77,17 @@ function resolveOpenInApplicationsDraftS
+@@ -71,167 +78,17 @@ function resolveOpenInApplicationsDraftS
  }
  
  export function shouldCommitOpenInApplicationsDraft(applications: OpenInApplication[]): boolean {
@@ -513,7 +446,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetti
  }
  
  export function OpenInMenuSetting({
-@@ -274,7 +131,10 @@ export function OpenInMenuSetting({
+@@ -275,7 +132,10 @@ export function OpenInMenuSetting({
      if (isAtLimit || isOpenInAppPresetAdded(draft, preset)) {
        return
      }
@@ -525,7 +458,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetti
    }
  
    const addCustomApp = (): void => {
-@@ -349,9 +209,7 @@ export function OpenInMenuSetting({
+@@ -350,9 +210,7 @@ export function OpenInMenuSetting({
          <div className="divide-y divide-border/40">
            {draft.map((application, index) => {
              const editing =
@@ -695,7 +628,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
  import { toast } from 'sonner'
  import {
    DropdownMenuItem,
-@@ -11,14 +11,25 @@ import {
+@@ -11,15 +11,25 @@ import {
  import { useAppStore } from '@/store'
  import { isLocalPathOpenBlocked, showLocalPathOpenBlockedToast } from '@/lib/local-path-open-guard'
  import { getLocalFileManagerLabel } from '@/lib/local-file-manager-label'
@@ -710,7 +643,8 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
 +} from '@/lib/open-in-menu-entries'
 +import { resolveOpenInUrl } from '../../../../shared/open-in-url-template'
  import type { ShellOpenExternalEditorResult } from '../../../../shared/shell-open-types'
--import type { GlobalSettings, OpenInApplication } from '../../../../shared/types'
+-import type { GlobalSettings } from '../../../../shared/global-settings-types'
+-import type { OpenInApplication } from '../../../../shared/ui-chrome-types'
  import { translate } from '@/i18n/i18n'
  
  export { getLocalFileManagerLabel } from '@/lib/local-file-manager-label'
@@ -723,7 +657,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
  
  type WorktreeOpenInMenuItemsProps = {
    worktreePath: string
-@@ -27,60 +38,6 @@ type WorktreeOpenInMenuItemsProps = {
+@@ -28,60 +38,6 @@ type WorktreeOpenInMenuItemsProps = {
    labelPrefix?: string
  }
  
@@ -784,7 +718,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
  function showOpenFailureToast(
    result: Exclude<ShellOpenExternalEditorResult, { ok: true }>,
    remote: boolean
-@@ -246,8 +203,26 @@ export async function openWorktreePath(a
+@@ -247,8 +203,26 @@ export async function openWorktreePath(a
    worktreePath: string
    connectionId?: string | null
    command?: string
@@ -811,7 +745,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
    if (args.target === 'file-manager') {
      if (isLocalPathOpenBlocked(settings, { connectionId: args.connectionId ?? null })) {
        showLocalPathOpenBlockedToast()
-@@ -256,7 +231,8 @@ export async function openWorktreePath(a
+@@ -257,7 +231,8 @@ export async function openWorktreePath(a
    } else {
      const capability = getExternalEditorOpenCapability(settings, {
        connectionId: args.connectionId,
@@ -821,7 +755,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
      })
      if (!capability.allowed) {
        if (capability.reason === 'remote-runtime') {
-@@ -281,16 +257,35 @@ export async function openWorktreePath(a
+@@ -282,16 +257,35 @@ export async function openWorktreePath(a
    }
  }
  
@@ -863,7 +797,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
      },
      [connectionId, worktreePath]
    )
-@@ -319,17 +314,11 @@ export function WorktreeOpenInMenuItems(
+@@ -320,17 +314,11 @@ export function WorktreeOpenInMenuItems(
              key={entry.id}
              onClick={stopMenuPropagation}
              onSelect={() => {
@@ -934,45 +868,6 @@ Index: orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability
 +    ).toEqual({ allowed: true, remote: false })
 +  })
  })
-Index: orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
-===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
-@@ -1,14 +1,32 @@
- import type { GlobalSettings } from '../../../shared/types'
-+import { isOpenInUrlTemplateUsable } from '../../../shared/open-in-url-template'
- import { isVsCodeRemoteSshCommand } from '../../../shared/vscode-remote-ssh-launcher'
- 
- export type ExternalEditorOpenCapability =
-   | { allowed: true; remote: boolean }
--  | { allowed: false; reason: 'remote-runtime' | 'local-only-editor' }
-+  | { allowed: false; reason: 'remote-runtime' | 'local-only-editor' | 'invalid-url' }
- 
- export function getExternalEditorOpenCapability(
-   settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
--  context: { connectionId?: string | null; command?: string }
-+  context: { connectionId?: string | null; command?: string; url?: string }
- ): ExternalEditorOpenCapability {
-+  // Why URL entries skip every check below: the guards exist because `command` spawns a process
-+  // on THIS machine against a path that belongs to another one. A URL has neither problem — it is
-+  // navigation, and the host that owns the path is the one serving it. Blocking these is what
-+  // leaves a remote runtime with no way to open a worktree in an editor at all.
-+  //
-+  // Why it wins even over an SSH connection with a command set: an entry that carries both is
-+  // declaring "reach me through the browser", and the URL's host is the one that owns the path in
-+  // every deployment that seeds one. The Settings pane shows the URL field on any such row, so
-+  // the precedence is visible and clearable rather than silent.
-+  if (context.url?.trim()) {
-+    // Why validity is a capability and not a click-time error: an unusable template can only come
-+    // from a hand-edited store or a seed, and rendering it enabled just to fail on click is the
-+    // worst of both. Disabled-with-a-reason is honest at the moment the user reads the menu.
-+    return isOpenInUrlTemplateUsable(context.url)
-+      ? { allowed: true, remote: false }
-+      : { allowed: false, reason: 'invalid-url' }
-+  }
-   if (settings?.activeRuntimeEnvironmentId?.trim()) {
-     return { allowed: false, reason: 'remote-runtime' }
-   }
 Index: orca-server/lib/orca/src/renderer/src/lib/open-in-app-catalog.tsx
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/lib/open-in-app-catalog.tsx
@@ -1071,7 +966,7 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
  import { createSettingsSearchState, type SettingsSearchState } from './settings-search-state'
  import { isRuntimeCatalogListingStale } from './runtime-status-hydration'
  import { normalizeDisabledTuiAgents } from '../../../../shared/tui-agent-selection'
-@@ -48,13 +51,6 @@ function normalizeRuntimeEnvironmentId(v
+@@ -57,13 +60,6 @@ function normalizeRuntimeEnvironmentId(v
    return trimmed ? trimmed : null
  }
  
@@ -1201,11 +1096,11 @@ Index: orca-server/lib/orca/src/shared/open-in-applications.ts
    }
  
    return normalized
-Index: orca-server/lib/orca/src/shared/types.ts
+Index: orca-server/lib/orca/src/shared/ui-chrome-types.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/shared/types.ts
-+++ orca-server/lib/orca/src/shared/types.ts
-@@ -2749,6 +2749,11 @@ export type OpenInApplication = {
+--- orca-server.orig/lib/orca/src/shared/ui-chrome-types.ts
++++ orca-server/lib/orca/src/shared/ui-chrome-types.ts
+@@ -7,6 +7,11 @@ export type OpenInApplication = {
    id: string
    label: string
    command: string
@@ -1217,3 +1112,110 @@ Index: orca-server/lib/orca/src/shared/types.ts
  }
  
  export type SourceControlViewMode = 'list' | 'tree'
+Index: orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-control/listing/entry-context-menu.tsx
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/components/right-sidebar/source-control/listing/entry-context-menu.tsx
++++ orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-control/listing/entry-context-menu.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback } from 'react'
+-import { Copy, ExternalLink, Eye, FolderOpen } from 'lucide-react'
++import { Copy, Eye, FolderOpen } from 'lucide-react'
+ import {
+   ContextMenu,
+   ContextMenuContent,
+@@ -11,7 +11,6 @@ import {
+   ContextMenuTrigger
+ } from '@/components/ui/context-menu'
+ import { useAppStore } from '@/store'
+-import { OpenInApplicationIcon } from '@/lib/open-in-app-catalog'
+ import { translate } from '@/i18n/i18n'
+ import { getLocalFileManagerLabel } from '@/lib/local-file-manager-label'
+ import { NO_OPEN_IN_APPLICATIONS } from '@/lib/open-in-application-selection'
+@@ -19,7 +18,9 @@ import {
+   getOpenInEntryAvailability,
+   getWorktreeOpenInEntries,
+   openOpenInAppsSettings,
+-  openWorktreePath
++  openWorktreeOpenInEntry,
++  OpenInMenuEntryIcon,
++  type OpenInMenuEntry
+ } from '@/components/sidebar/WorktreeOpenInMenu'
+ 
+ type SourceControlEntryContextMenuProps = {
+@@ -75,16 +76,11 @@ export function SourceControlEntryContex
+   }, [absolutePath, currentWorktreeId, onRevealInExplorer])
+ 
+   const handleOpenInExternal = useCallback(
+-    (target: 'file-manager' | 'external-editor', command?: string) => {
++    (entry: OpenInMenuEntry) => {
+       if (!absolutePath) {
+         return
+       }
+-      void openWorktreePath({
+-        target,
+-        worktreePath: absolutePath,
+-        connectionId,
+-        command
+-      })
++      void openWorktreeOpenInEntry(entry, { worktreePath: absolutePath, connectionId })
+     },
+     [absolutePath, connectionId]
+   )
+@@ -124,16 +120,10 @@ export function SourceControlEntryContex
+               return (
+                 <ContextMenuItem
+                   key={entry.id}
+-                  onSelect={() => handleOpenInExternal(entry.target, entry.command)}
++                  onSelect={() => handleOpenInExternal(entry)}
+                   disabled={!absolutePath || availability.disabled}
+                 >
+-                  {entry.target === 'file-manager' ? (
+-                    <FolderOpen className="size-3.5" />
+-                  ) : entry.command ? (
+-                    <OpenInApplicationIcon application={{ command: entry.command }} size={14} />
+-                  ) : (
+-                    <ExternalLink className="size-3.5" />
+-                  )}
++                  <OpenInMenuEntryIcon entry={entry} />
+                   <span className="min-w-0 truncate">{entry.label}</span>
+                   {availability.metadata ? (
+                     <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
+Index: orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
++++ orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
+@@ -1,14 +1,32 @@
+ import type { GlobalSettings } from '../../../shared/global-settings-types'
++import { isOpenInUrlTemplateUsable } from '../../../shared/open-in-url-template'
+ import { isVsCodeRemoteSshCommand } from '../../../shared/vscode-remote-ssh-launcher'
+ 
+ export type ExternalEditorOpenCapability =
+   | { allowed: true; remote: boolean }
+-  | { allowed: false; reason: 'remote-runtime' | 'local-only-editor' }
++  | { allowed: false; reason: 'remote-runtime' | 'local-only-editor' | 'invalid-url' }
+ 
+ export function getExternalEditorOpenCapability(
+   settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
+-  context: { connectionId?: string | null; command?: string }
++  context: { connectionId?: string | null; command?: string; url?: string }
+ ): ExternalEditorOpenCapability {
++  // Why URL entries skip every check below: the guards exist because `command` spawns a process
++  // on THIS machine against a path that belongs to another one. A URL has neither problem — it is
++  // navigation, and the host that owns the path is the one serving it. Blocking these is what
++  // leaves a remote runtime with no way to open a worktree in an editor at all.
++  //
++  // Why it wins even over an SSH connection with a command set: an entry that carries both is
++  // declaring "reach me through the browser", and the URL's host is the one that owns the path in
++  // every deployment that seeds one. The Settings pane shows the URL field on any such row, so
++  // the precedence is visible and clearable rather than silent.
++  if (context.url?.trim()) {
++    // Why validity is a capability and not a click-time error: an unusable template can only come
++    // from a hand-edited store or a seed, and rendering it enabled just to fail on click is the
++    // worst of both. Disabled-with-a-reason is honest at the moment the user reads the menu.
++    return isOpenInUrlTemplateUsable(context.url)
++      ? { allowed: true, remote: false }
++      : { allowed: false, reason: 'invalid-url' }
++  }
+   if (settings?.activeRuntimeEnvironmentId?.trim()) {
+     return { allowed: false, reason: 'remote-runtime' }
+   }

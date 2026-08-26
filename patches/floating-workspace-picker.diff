@@ -26,7 +26,7 @@ Index: orca-server/lib/orca/src/main/ipc/app.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/ipc/app.ts
 +++ orca-server/lib/orca/src/main/ipc/app.ts
-@@ -316,6 +316,10 @@ export function registerAppHandlers(stor
+@@ -325,6 +325,10 @@ export function registerAppHandlers(stor
    ipcMain.handle('app:pickFloatingWorkspaceDirectory', (event) =>
      pickFloatingWorkspaceDirectory(event, store)
    )
@@ -41,10 +41,10 @@ Index: orca-server/lib/orca/src/main/ipc/floating-workspace-directory.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/ipc/floating-workspace-directory.ts
 +++ orca-server/lib/orca/src/main/ipc/floating-workspace-directory.ts
-@@ -3,11 +3,20 @@ import { access, mkdir, realpath, stat }
- import path from 'node:path'
+@@ -4,11 +4,20 @@ import path from 'node:path'
  import { app } from 'electron'
- import type { GlobalSettings, FloatingTerminalCwdRequest } from '../../shared/types'
+ import type { GlobalSettings } from '../../shared/global-settings-types'
+ import type { FloatingTerminalCwdRequest } from '../../shared/ui-chrome-types'
 -import type { Store } from '../persistence'
  import { authorizeExternalPath } from './filesystem-auth'
  
@@ -63,7 +63,7 @@ Index: orca-server/lib/orca/src/main/ipc/floating-workspace-directory.ts
  function expandHomePath(input: string, home: string): string {
    if (input === '~') {
      return home
-@@ -77,7 +86,7 @@ export async function ensureDefaultFloat
+@@ -78,7 +87,7 @@ export async function ensureDefaultFloat
  }
  
  export async function resolveFloatingTerminalCwd(
@@ -72,7 +72,7 @@ Index: orca-server/lib/orca/src/main/ipc/floating-workspace-directory.ts
    args?: FloatingTerminalCwdRequest
  ): Promise<string> {
    const configuredPath = typeof args?.path === 'string' ? args.path.trim() : ''
-@@ -104,7 +113,7 @@ export async function resolveFloatingTer
+@@ -105,7 +114,7 @@ export async function resolveFloatingTer
  }
  
  export async function grantFloatingWorkspaceDirectory(
@@ -81,7 +81,7 @@ Index: orca-server/lib/orca/src/main/ipc/floating-workspace-directory.ts
    dirPath: string
  ): Promise<void> {
    const resolvedDir = resolveFloatingWorkspaceInput(dirPath)
-@@ -123,7 +132,7 @@ export async function grantFloatingWorks
+@@ -124,7 +133,7 @@ export async function grantFloatingWorks
  }
  
  export async function sanitizeFloatingWorkspaceDirectorySetting(
@@ -127,27 +127,20 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -188,6 +188,7 @@ import type {
-   GitHubCreateIssueFields,
-   GitHubOwnerRepo,
-   GlobalSettings,
-+  FloatingTerminalCwdRequest,
-   PersistedUIState,
-   Project,
-   ProjectUpdateArgs,
-@@ -884,6 +885,11 @@ import {
- import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
- import { isENOENT, invalidateAuthorizedRootsCache } from '../ipc/filesystem-auth'
- import {
+@@ -330,6 +330,12 @@ import type {
+ } from '../../shared/terminal-tab-types'
+ import type { TuiAgent } from '../../shared/tui-agent'
+ import type { BranchPrefixStrategy } from '../../shared/ui-chrome-types'
++import type { FloatingTerminalCwdRequest } from '../../shared/ui-chrome-types'
++import {
 +  resolveFloatingTerminalCwd as resolveFloatingTerminalCwdOnHost,
 +  grantFloatingWorkspaceDirectory as grantFloatingWorkspaceDirectoryOnHost,
 +  type FloatingWorkspaceDirectoryStore
 +} from '../ipc/floating-workspace-directory'
-+import {
-   createSetupRunnerScript,
-   getDefaultTabCommandTrustContent,
-   getDefaultTabsLaunch,
-@@ -18637,6 +18643,32 @@ export class OrcaRuntimeService {
+ import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
+ import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../shared/workspace-source'
+ import type {
+@@ -20841,6 +20847,32 @@ export class OrcaRuntimeService {
      return scanNestedRepos({ path, options: { timeoutMs: 15_000 } })
    }
  
@@ -200,26 +193,11 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
 +  ...CLI_METHODS,
 +  ...FLOATING_WORKSPACE_METHODS
  ]
-Index: orca-server/lib/orca/src/preload/api-types.ts
-===================================================================
---- orca-server.orig/lib/orca/src/preload/api-types.ts
-+++ orca-server/lib/orca/src/preload/api-types.ts
-@@ -978,6 +978,10 @@ export type AppApi = {
-   /** Opens a native directory picker and authorizes the selected directory
-    *  for Floating Workspace markdown file creation. */
-   pickFloatingWorkspaceDirectory: () => Promise<string | null>
-+  /** Authorizes an already-chosen directory (e.g. from the web client's in-app
-+   *  host-fs browser, which has no native picker) as a Floating Workspace trust
-+   *  grant — the same grant the native picker records. */
-+  grantFloatingWorkspaceDirectory: (dirPath: string) => Promise<void>
-   /** Persists flag-gated terminal render evidence under app-owned userData. */
-   writeTerminalRenderDesyncEvidence: (
-     args: WriteTerminalRenderDesyncEvidenceArgs
 Index: orca-server/lib/orca/src/preload/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/preload/index.ts
 +++ orca-server/lib/orca/src/preload/index.ts
-@@ -543,6 +543,8 @@ const api = {
+@@ -595,6 +595,8 @@ const api = {
        ipcRenderer.invoke('app:pickFloatingMarkdownDocument'),
      pickFloatingWorkspaceDirectory: (): Promise<string | null> =>
        ipcRenderer.invoke('app:pickFloatingWorkspaceDirectory'),
@@ -289,11 +267,12 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
 +++ orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
-@@ -1,16 +1,19 @@
+@@ -1,10 +1,13 @@
  import { useEffect, useState } from 'react'
  import { FolderOpen } from 'lucide-react'
 +import { toast } from 'sonner'
- import type { FloatingTerminalTriggerLocation, GlobalSettings } from '../../../../shared/types'
+ import type { GlobalSettings } from '../../../../shared/global-settings-types'
+ import type { FloatingTerminalTriggerLocation } from '../../../../shared/ui-chrome-types'
  import { Button } from '../ui/button'
  import { Input } from '../ui/input'
  import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
@@ -302,15 +281,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  import { SearchableSetting } from './SearchableSetting'
  import { SettingsRow, SettingsSwitchRow } from './SettingsFormControls'
  import { getFloatingWorkspaceSearchEntries } from './floating-workspace-search'
- import { matchesSettingsSearch } from './settings-search'
- import { useAppStore } from '../../store'
--import { translate } from '@/i18n/i18n'
- import { isWebClientLocation } from '@/lib/web-client-location'
-+import { translate } from '@/i18n/i18n'
- 
- type FloatingWorkspacePaneProps = {
-   settings: GlobalSettings
-@@ -28,7 +31,25 @@ export function getFloatingWorkspaceDire
+@@ -29,7 +32,25 @@ export function getFloatingWorkspaceDire
    if (!configuredPath || configuredPath === '~') {
      return '~'
    }
@@ -337,7 +308,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  }
  
  export function FloatingWorkspacePane({
-@@ -38,6 +59,13 @@ export function FloatingWorkspacePane({
+@@ -39,6 +60,13 @@ export function FloatingWorkspacePane({
    const searchQuery = useAppStore((state) => state.settingsSearchQuery)
    const includeBrowser = !isWebClientLocation()
    const [resolvedFloatingWorkspacePath, setResolvedFloatingWorkspacePath] = useState('')
@@ -351,7 +322,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  
    useEffect(() => {
      let cancelled = false
-@@ -60,13 +88,38 @@ export function FloatingWorkspacePane({
+@@ -61,13 +89,38 @@ export function FloatingWorkspacePane({
      }
    }, [settings.floatingTerminalCwd])
  
@@ -392,7 +363,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
    }
  
    const directoryInputValue = getFloatingWorkspaceDirectoryInputValue({
-@@ -197,6 +250,36 @@ export function FloatingWorkspacePane({
+@@ -198,6 +251,36 @@ export function FloatingWorkspacePane({
            }
          />
        </SearchableSetting>
@@ -433,19 +404,17 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
 +++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -42,7 +42,8 @@ import type {
-   WorktreeLineage,
-   WorkspaceLineage,
-   WorkspaceSessionPatch,
--  WorkspaceSessionState
-+  WorkspaceSessionState,
-+  FloatingTerminalCwdRequest
- } from '../../../shared/types'
+@@ -42,6 +42,7 @@ import {
+ } from '../../../shared/pairing-local-ui-fields'
+ import type { MemorySnapshot, StatsSummary } from '../../../shared/process-stats-types'
  import type { CliInstallStatus } from '../../../shared/cli-install-types'
- import type { SkillDiscoveryResult } from '../../../shared/skills'
-@@ -582,10 +583,29 @@ function createWebPreloadApi(): Partial<
-       startupDiagnostic: () => Promise.resolve(),
-       getKeyboardInputSourceId: () => Promise.resolve(null),
++import type { FloatingTerminalCwdRequest } from '../../../shared/ui-chrome-types'
+ import type { Repo } from '../../../shared/repo-types'
+ import type {
+   WorkspaceSessionPatch,
+@@ -600,10 +601,29 @@ function createWebPreloadApi(): Partial<
+       getKeyboardLayoutSnapshot: () => Promise.resolve(null),
+       onKeyboardLayoutChanged: () => () => undefined,
        setUnreadDockBadgeCount: () => Promise.resolve(),
 -      getFloatingTerminalCwd: () => Promise.resolve(''),
 +      // Why: the floating terminals run on the connected SERVER, so its cwd must
@@ -474,3 +443,18 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        // Browser fallback has no app-owned userData dir; reject so the sentinel can't claim sensitive evidence was persisted.
        writeTerminalRenderDesyncEvidence: () =>
          Promise.reject(
+Index: orca-server/lib/orca/src/preload/api/app-api.ts
+===================================================================
+--- orca-server.orig/lib/orca/src/preload/api/app-api.ts
++++ orca-server/lib/orca/src/preload/api/app-api.ts
+@@ -65,6 +65,10 @@ export type AppApi = {
+   /** Opens a native directory picker and authorizes the selected directory
+    *  for Floating Workspace markdown file creation. */
+   pickFloatingWorkspaceDirectory: () => Promise<string | null>
++  /** Authorizes an already-chosen directory (e.g. from the web client's in-app
++   *  host-fs browser, which has no native picker) as a Floating Workspace trust
++   *  grant — the same grant the native picker records. */
++  grantFloatingWorkspaceDirectory: (dirPath: string) => Promise<void>
+   /** Persists flag-gated terminal render evidence under app-owned userData. */
+   writeTerminalRenderDesyncEvidence: (
+     args: WriteTerminalRenderDesyncEvidenceArgs

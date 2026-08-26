@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { OpenInMenuRow, type OpenInMenuRowProps } from './OpenInMenuRow'
-import type { OpenInApplication } from '../../../../shared/types'
+import type { OpenInApplication } from '../../../../shared/ui-chrome-types'
 
 afterEach(cleanup)
 

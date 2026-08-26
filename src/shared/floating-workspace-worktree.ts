@@ -1,5 +1,5 @@
 import { FLOATING_TERMINAL_WORKTREE_ID } from './constants'
-import type { Worktree } from './types'
+import type { Worktree } from './worktree/types'
 
 /**
  * The floating sentinel is terminal-only on the runtime: every non-terminal workspace API
