@@ -31,6 +31,8 @@ Orca v9.99.999
 
 ## Unreleased
 
+## [4.188.0] - 2026-08-26
+
 Orca v1.4.188
 
 ### Changed
