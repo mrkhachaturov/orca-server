@@ -32,6 +32,9 @@ function prepare_clone() {
     echo '.pc/' >> "$MIRROR/.git/info/exclude"
   else
     git -C "$MIRROR" remote set-url origin "$REMOTE"
+    # .cache is shared between worktrees, so the clone's submodule remote may
+    # name another tree still on the old pin — and the new tag is only here.
+    git -C "$MIRROR" remote set-url submodule "$PWD/lib/orca"
     git -C "$MIRROR" fetch --quiet submodule --tags --prune
   fi
 }
@@ -48,7 +51,9 @@ function build_tree() {
 
 function publish() {
   git -C "$MIRROR" add --all
-  git -C "$MIRROR" -c user.name='orca-server' -c user.email='mirror@localhost' \
+  # Unsigned explicitly, like the tag below: this is a machine commit under a
+  # machine identity, and a forced commit.gpgsign fails it outright.
+  git -C "$MIRROR" -c commit.gpgSign=false -c user.name='orca-server' -c user.email='mirror@localhost' \
     commit --quiet --message "patched $tag" --allow-empty
   # Annotated and unsigned explicitly: the machine's git config may force either.
   git -C "$MIRROR" -c tag.gpgSign=false -c user.name='orca-server' -c user.email='mirror@localhost' \
