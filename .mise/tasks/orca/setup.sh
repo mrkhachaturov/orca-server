@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#MISE alias="link-local"
-#MISE description="Symlink the gitignored local config from the primary checkout into a new worktree"
+#MISE alias="worktree-setup"
+#MISE description="Prepare a new worktree: link the local agent config, then assemble the tree"
 #MISE dir="{{config_root}}"
 
 set -Eeuo pipefail
@@ -39,3 +39,11 @@ for rel in "${PATHS[@]}"; do
   ln -s "$src" "$dst"
   echo "linked $rel"
 done
+
+reference=()
+if [ -d "$root/.git/modules/lib/orca" ]; then
+  reference=(--reference "$root/.git/modules/lib/orca")
+fi
+
+git -C "$worktree" submodule update --init ${reference[@]+"${reference[@]}"} lib/orca
+mise -C "$worktree" run up

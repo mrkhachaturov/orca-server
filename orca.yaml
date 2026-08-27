@@ -1,2 +1,2 @@
 scripts:
-  setup: mise run link-local
+  setup: mise run worktree-setup
