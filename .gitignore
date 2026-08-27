@@ -21,8 +21,8 @@ node_modules
 /.claude/settings.local.json
 /.claude/findings.md
 /.agents/skills/orca-graph/
-/.agents/skills/orca-wiki/
+/.agents/skills/orca-wiki
 /.claude/skills/orca-graph
 /.claude/skills/orca-wiki
 # Written by `kodus skills install`, re-created by it on every machine.
-/.claude/commands/
+/.claude/commands
