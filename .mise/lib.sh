@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# git hands a hook an absolute GIT_DIR, and in a linked worktree that makes
+# `git -C lib/orca` read the outer index. Every call here names its repo.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+
 pushd() {
   builtin pushd "$@" > /dev/null
 }

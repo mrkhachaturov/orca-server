@@ -7,6 +7,10 @@
 ROOT="$BATS_TEST_DIRNAME/../.."
 PATCHES="$ROOT/patches"
 
+# File scope, not setup_file: a hook exports GIT_DIR, and check 10 would then
+# read the outer index and call every upstream file unowned.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+
 setup_file() {
   cd "$ROOT" || exit 1
   # Check 9 rewrites patches, so quilt's prefix must be pinned even when bats

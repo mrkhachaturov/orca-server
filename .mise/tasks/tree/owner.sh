@@ -9,6 +9,9 @@
 
 set -Eeuo pipefail
 
+# Inherited git env would point `git -C` at the outer repo — see .mise/lib.sh.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+
 function main() {
 
   local arg=${1-}
