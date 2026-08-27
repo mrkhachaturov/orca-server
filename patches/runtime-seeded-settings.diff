@@ -4,28 +4,32 @@ A freshly provisioned workspace could not declare how its Orca looks or which
 features are on: every browser opening the tile started at stock defaults, and
 the same toggles got re-clicked after every workspace create.
 
-The web client keeps settings in localStorage, and of the 184 top-level
-`GlobalSettings` keys on `v1.4.156` it pulls exactly five from the runtime -
-`theme` and the `experimental*` flags are not among them, so writing
-`orca-data.json` on the workspace changed nothing. A shared allowlist of
-appearance and capability keys is now returned by `settings.get` and adopted
-exactly once, on a browser's first visit, when localStorage holds no settings
-blob; nothing is written back and nothing is re-imposed later, so these are
-defaults rather than policy. Per-device ergonomics and credentials are excluded.
-A load that never reached the store does not spend the first visit, so a browser
-whose first open happened offline still seeds on the next one.
+The web client keeps settings in localStorage, and of the 213 top-level
+`GlobalSettings` keys at `v1.4.190` it pulls exactly five from the runtime -
+`theme` and the `experimental*` flags are not among them, so writing the
+runtime's store changed nothing. A shared allowlist of appearance and capability
+keys is now returned by `settings.get` and adopted exactly once, on a browser's
+first visit, when localStorage holds no settings blob; nothing is written back
+and nothing is re-imposed later, so these are defaults rather than policy.
+Per-device ergonomics and credentials are excluded. A load that never reached
+the store does not spend the first visit, so a browser whose first open happened
+offline still seeds on the next one.
 
-To test, set a seeded key in the workspace's `orca-data.json` and open the tile
-in a browser with no Orca localStorage; then change it in the UI and reload to
+The store is the active Orca profile's `orca-data.json`
+(`<userData>/profiles/<profileId>/orca-data.json`), not a per-workspace file;
+under the AppImage's `orca serve` userData is `~/.config/orca`.
+
+To test, set a seeded key in that `orca-data.json` and open the tile in a
+browser with no Orca localStorage; then change it in the UI and reload to
 confirm the workspace does not override the user. Covered by
-`runtime-seeded-settings.test.ts` for the key picker and
+`runtime-seeded-settings.test.ts` for the key picker,
+`runtime-seeded-client-settings.test.ts` for the `settings.get` projection and
 `web-preload-settings-seeding.test.ts` for the load path.
-
-Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
+Index: b/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
-+++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -367,6 +367,10 @@ import type {
+--- a/lib/orca/src/main/runtime/orca-runtime.ts
++++ b/lib/orca/src/main/runtime/orca-runtime.ts
+@@ -366,6 +366,10 @@ import type {
    Worktree
  } from '../../shared/worktree/types'
  import type { TaskSourceContext } from '../../shared/task-source-context'
@@ -36,7 +40,16 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree/removal'
  import {
    LOCAL_EXECUTION_HOST_ID,
-@@ -3896,12 +3900,17 @@ export class OrcaRuntimeService {
+@@ -1370,7 +1374,7 @@ type RuntimeStore = {
+     terminalMainSideEffectAuthority?: GlobalSettings['terminalMainSideEffectAuthority']
+     terminalHiddenDeliveryGate?: GlobalSettings['terminalHiddenDeliveryGate']
+     terminalModelQueryAuthority?: GlobalSettings['terminalModelQueryAuthority']
+-  }
++  } & Partial<Pick<GlobalSettings, RuntimeSeededSettingKey>>
+   // Why: narrow to `unknown` return so test mocks can return void without
+   // a cast. The runtime never reads the return value — the persisted value
+   // is read back via getSettings() on the next access.
+@@ -3895,12 +3899,17 @@ export class OrcaRuntimeService {
      // still omits the key so no RPC caller can grant it to itself.
      | 'artifactSharingEnabled'
      | 'agentSkillSharingEnabled'
@@ -55,10 +68,10 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        worktreeVisibilityDefaults: settings.worktreeVisibilityDefaults ?? { external: 'hide' },
        defaultTuiAgent: settings.defaultTuiAgent ?? null,
        disabledTuiAgents: settings.disabledTuiAgents ?? [],
-Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
 @@ -102,6 +102,7 @@ import {
    normalizeOsc52ClipboardDefaultOn,
    osc52ClipboardDefaultOnOverridesPersistedOff
@@ -67,7 +80,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import { normalizeTerminalCustomThemes } from '../../../shared/terminal-custom-themes'
  import { normalizeUiLanguage } from '../../../shared/ui-language'
  import { normalizeUsagePercentageDisplay } from '../../../shared/usage-percentage-display'
-@@ -4074,6 +4075,10 @@ function writeStoredSettings(
+@@ -4065,6 +4066,10 @@ function writeStoredSettings(
  }
  
  async function getRuntimeBackedStoredSettings(): Promise<GlobalSettings> {
@@ -78,7 +91,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
    const local = getStoredSettings()
    const requestedEnvironment = requireActiveEnvironmentOrNull()
    if (!requestedEnvironment) {
-@@ -4122,6 +4127,13 @@ async function getRuntimeBackedStoredSet
+@@ -4113,6 +4118,13 @@ async function getRuntimeBackedStoredSet
      if (typeof result.settings.agentSkillSharingEnabled === 'boolean') {
        runtimeSettings.agentSkillSharingEnabled = result.settings.agentSkillSharingEnabled
      }

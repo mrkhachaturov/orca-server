@@ -46,10 +46,10 @@ the npx wrapper when a remote runtime is focused. That never fires here — loca
 nothing is focused — and it does not cover `normalizeWindowsSkillUpdateCommand`, which rewrites
 `skills update` on a client-reported win32 regardless. Reading the host's own platform fixes both,
 including upstream's paired-laptop case.
-Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+Index: b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
-+++ orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+--- a/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
++++ b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 @@ -191,20 +191,27 @@ describe('mobile RPC allowlist', () => {
      // run on the host) may resolve/grant; a paired phone must not.
      const allowed = mobileRpcAllowlist()
@@ -85,19 +85,19 @@ Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
      expect(missing).toEqual([])
    })
  })
-Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
+Index: b/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
-+++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
+--- a/lib/orca/src/main/runtime/orca-runtime.ts
++++ b/lib/orca/src/main/runtime/orca-runtime.ts
 @@ -333,6 +333,7 @@ import type { TuiAgent } from '../../sha
  import type { BranchPrefixStrategy } from '../../shared/ui-chrome-types'
  import type { FloatingTerminalCwdRequest } from '../../shared/ui-chrome-types'
  import {
 +  ensureDefaultFloatingWorkspacePath as ensureDefaultFloatingWorkspacePathOnHost,
    resolveFloatingTerminalCwd as resolveFloatingTerminalCwdOnHost,
-   grantFloatingWorkspaceDirectory as grantFloatingWorkspaceDirectoryOnHost,
-   type FloatingWorkspaceDirectoryStore
-@@ -610,6 +611,7 @@ import {
+   grantFloatingWorkspaceDirectory as grantFloatingWorkspaceDirectoryOnHost
+ } from '../ipc/floating-workspace-directory'
+@@ -609,6 +610,7 @@ import {
    sharesResolvedWorktreeLineageBoundary
  } from '../../shared/resolved-worktree-lineage'
  import { folderWorkspaceToWorktree } from '../../shared/folder-workspace-worktree'
@@ -105,7 +105,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import type {
    FolderWorkspacePathStatus,
    FolderWorkspacePathStatusRequest
-@@ -10510,6 +10512,19 @@ export class OrcaRuntimeService {
+@@ -10509,6 +10511,19 @@ export class OrcaRuntimeService {
      worktree: ResolvedWorktree
      connectionId?: string
    }> {
@@ -125,7 +125,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      const folderScope = await this.resolveFolderWorkspaceLaunchScope(worktreeSelector)
      if (folderScope?.folderWorkspace) {
        return {
-@@ -31318,7 +31333,12 @@ export class OrcaRuntimeService {
+@@ -31306,7 +31321,12 @@ export class OrcaRuntimeService {
    }
  
    private folderWorkspaceToResolvedWorktree(folderWorkspace: FolderWorkspace): ResolvedWorktree {
@@ -139,10 +139,10 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      return {
        ...worktree,
        parentWorktreeId: null,
-Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx
+Index: b/lib/orca/src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx
+--- a/lib/orca/src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx
++++ b/lib/orca/src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx
 @@ -117,9 +117,15 @@ import { useSettledPanelViewport } from
  import { shouldRestoreMaximizedPanelBounds } from './floating-terminal-panel-restore-geometry'
  import { translate } from '@/i18n/i18n'
@@ -351,10 +351,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/floating-terminal/Floati
          <div
            className="relative min-h-0 flex-1 overflow-hidden bg-background"
            data-contextual-tour-target={
-Index: orca-server/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowser.tsx
+Index: b/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowser.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowser.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowser.tsx
+--- a/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowser.tsx
++++ b/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowser.tsx
 @@ -19,6 +19,16 @@ type RemoteFileBrowserProps = (
    initialPath?: string
    onSelect: (path: string) => void
@@ -468,10 +468,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/RemoteFileBrowse
        </div>
      </div>
    )
-Index: orca-server/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
+Index: b/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
-+++ orca-server/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
+--- a/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
++++ b/lib/orca/src/renderer/src/components/terminal-pane/pty-connection.ts
 @@ -294,6 +294,7 @@ import {
    getExecutionHostIdForWorktree,
    getSettingsForWorktreeRuntimeOwner
@@ -505,10 +505,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/terminal-pane/pty-connec
    const canSendDesktopQueryReply = (): boolean => {
      const ptyId = transport.getPtyId()
      return !ptyId || !isPtyLocked(ptyId)
-Index: orca-server/lib/orca/src/renderer/src/lib/editor-file-operation-owner.ts
+Index: b/lib/orca/src/renderer/src/lib/editor-file-operation-owner.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/editor-file-operation-owner.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/editor-file-operation-owner.ts
+--- a/lib/orca/src/renderer/src/lib/editor-file-operation-owner.ts
++++ b/lib/orca/src/renderer/src/lib/editor-file-operation-owner.ts
 @@ -1,5 +1,6 @@
 -import { parseExecutionHostId } from '../../../shared/execution-host'
 +import { parseExecutionHostId, toRuntimeExecutionHostId } from '../../../shared/execution-host'
@@ -540,10 +540,10 @@ Index: orca-server/lib/orca/src/renderer/src/lib/editor-file-operation-owner.ts
        : explicitResolution.kind === 'resolved'
          ? explicitResolution.route
          : explicitResolution.kind === 'ambiguous'
-Index: orca-server/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation.ts
+Index: b/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation.ts
+--- a/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation.ts
++++ b/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation.ts
 @@ -3,6 +3,7 @@ import type { BrowserTab } from '../../.
  import type { TerminalTab } from '../../../shared/terminal-tab-types'
  import { createUntitledMarkdownFileWithTemplateSelection } from './create-untitled-markdown'
@@ -618,10 +618,10 @@ Index: orca-server/lib/orca/src/renderer/src/lib/floating-workspace-tab-creation
      }
    )
  }
-Index: orca-server/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
+Index: b/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
+--- a/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
++++ b/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
 @@ -10,6 +10,7 @@ import {
  } from './worktree-runtime-owner'
  import { resolveWorktreeOperationRouteResult } from './worktree-operation-route'
@@ -648,10 +648,10 @@ Index: orca-server/lib/orca/src/renderer/src/lib/terminal-worktree-route.ts
      )
    }
    const resolution = resolveWorktreeOperationRouteResult(state, worktreeId)
-Index: orca-server/lib/orca/src/renderer/src/lib/web-client-location.ts
+Index: b/lib/orca/src/renderer/src/lib/web-client-location.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/web-client-location.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/web-client-location.ts
+--- a/lib/orca/src/renderer/src/lib/web-client-location.ts
++++ b/lib/orca/src/renderer/src/lib/web-client-location.ts
 @@ -4,6 +4,9 @@ export function isWebClientLocation(): b
    }
    return (
@@ -663,10 +663,10 @@ Index: orca-server/lib/orca/src/renderer/src/lib/web-client-location.ts
 +    window.location?.pathname?.endsWith('/web-index.html') === true
    )
  }
-Index: orca-server/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
+Index: b/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
+--- a/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
++++ b/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
 @@ -1,4 +1,9 @@
 -import { getRepoExecutionHostId, parseExecutionHostId } from '../../../shared/execution-host'
 +import {
@@ -730,10 +730,10 @@ Index: orca-server/lib/orca/src/renderer/src/lib/worktree-runtime-owner.ts
 +      getWebClientLocalFallbackEnvironmentId(state)
    }
  }
-Index: orca-server/lib/orca/src/renderer/src/runtime/runtime-worktree-selector.ts
+Index: b/lib/orca/src/renderer/src/runtime/runtime-worktree-selector.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/runtime/runtime-worktree-selector.ts
-+++ orca-server/lib/orca/src/renderer/src/runtime/runtime-worktree-selector.ts
+--- a/lib/orca/src/renderer/src/runtime/runtime-worktree-selector.ts
++++ b/lib/orca/src/renderer/src/runtime/runtime-worktree-selector.ts
 @@ -23,3 +23,18 @@ export function toRuntimeTerminalWorktre
    }
    return toRuntimeWorktreeSelector(worktreeId)
@@ -753,10 +753,10 @@ Index: orca-server/lib/orca/src/renderer/src/runtime/runtime-worktree-selector.t
 +    ? undefined
 +    : toRuntimeWorktreeSelector(worktreeId)
 +}
-Index: orca-server/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
+Index: b/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
-+++ orca-server/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
+--- a/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
++++ b/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
 @@ -38,7 +38,10 @@ import {
    withAgentSessionCreateOperationId
  } from './agent-session-create-operation'
@@ -780,10 +780,10 @@ Index: orca-server/lib/orca/src/renderer/src/runtime/web-runtime-session.ts
            url: navigateAfterCreate ? undefined : args.url,
            ...(hostSupportsKnownPageId ? { page: provisionalPageId } : {}),
            profileId: args.profileId ?? undefined,
-Index: orca-server/lib/orca/src/renderer/src/store/slices/browser.ts
+Index: b/lib/orca/src/renderer/src/store/slices/browser.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/store/slices/browser.ts
-+++ orca-server/lib/orca/src/renderer/src/store/slices/browser.ts
+--- a/lib/orca/src/renderer/src/store/slices/browser.ts
++++ b/lib/orca/src/renderer/src/store/slices/browser.ts
 @@ -56,6 +56,7 @@ import {
    getExecutionHostIdForWorktree,
    getRuntimeEnvironmentIdForWorktree
@@ -807,10 +807,10 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/browser.ts
      if (browserAvailability.provider === 'paired-runtime') {
        if (!runtimeEnvironmentId) {
          throw new Error('The paired runtime browser provider is unavailable.')
-Index: orca-server/lib/orca/src/renderer/src/store/slices/runtime-status.ts
+Index: b/lib/orca/src/renderer/src/store/slices/runtime-status.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/store/slices/runtime-status.ts
-+++ orca-server/lib/orca/src/renderer/src/store/slices/runtime-status.ts
+--- a/lib/orca/src/renderer/src/store/slices/runtime-status.ts
++++ b/lib/orca/src/renderer/src/store/slices/runtime-status.ts
 @@ -65,6 +65,10 @@ export type RuntimeStatusSlice = {
    retainRuntimeEnvironmentStatuses: (environmentIds: Iterable<string>) => void
    /** Probes one saved runtime and records the latest reachable/unreachable state. */
@@ -847,10 +847,10 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/runtime-status.ts
    hydrateRuntimeEnvironmentStatuses: createRuntimeStatusHydration({
      listEnvironments: () => window.api.runtimeEnvironments.list(),
      getCurrentEnvironments: () => get().runtimeEnvironments,
-Index: orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
+Index: b/lib/orca/src/renderer/src/store/slices/settings.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/store/slices/settings.ts
-+++ orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
+--- a/lib/orca/src/renderer/src/store/slices/settings.ts
++++ b/lib/orca/src/renderer/src/store/slices/settings.ts
 @@ -8,6 +8,7 @@ import {
    unwrapRuntimeRpcResult
  } from '@/runtime/runtime-rpc-client'
@@ -873,10 +873,10 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
        void get().hydrateRuntimeEnvironmentStatuses()
      }
    },
-Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
 @@ -7,6 +7,7 @@ import type {
    NativeChatAppendedMessages
  } from '../../../preload/api-types'
@@ -905,7 +905,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        pickFloatingMarkdownDocument: () => Promise.resolve(null),
        // Why: the web tile has no native OS dialog — the picker is the in-app
        // host-fs browser (RemoteFileBrowser), so this native entry stays a no-op.
-@@ -4604,11 +4616,38 @@ async function resolveRuntimeWorktreeByP
+@@ -4595,11 +4607,38 @@ async function resolveRuntimeWorktreeByP
      .filter((entry) => entry.relativePath !== null)
      .sort((a, b) => b.worktree.path.length - a.worktree.path.length)[0]
    if (!match) {
@@ -944,10 +944,10 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  async function resolveRuntimeFilePath(
    filePath: string,
    preferredWorktreePath?: string,
-Index: orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.test.ts
+Index: b/lib/orca/src/renderer/src/lib/client-creation-action-policy.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/client-creation-action-policy.test.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.test.ts
+--- a/lib/orca/src/renderer/src/lib/client-creation-action-policy.test.ts
++++ b/lib/orca/src/renderer/src/lib/client-creation-action-policy.test.ts
 @@ -101,17 +101,19 @@ describe('resolveClientCreationActionPol
      ).toEqual({ state: 'hidden', reason: MANAGED_BROWSER_UNAVAILABLE_MESSAGE })
    })
@@ -991,10 +991,10 @@ Index: orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.t
 +    })
 +  })
  })
-Index: orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.ts
+Index: b/lib/orca/src/renderer/src/lib/client-creation-action-policy.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/client-creation-action-policy.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.ts
+--- a/lib/orca/src/renderer/src/lib/client-creation-action-policy.ts
++++ b/lib/orca/src/renderer/src/lib/client-creation-action-policy.ts
 @@ -4,6 +4,7 @@ import type { RuntimeStatus } from '../.
  import type { AppState } from '@/store/types'
  import { isPairedWebClientWindow } from './desktop-window-chrome'
@@ -1041,10 +1041,10 @@ Index: orca-server/lib/orca/src/renderer/src/lib/client-creation-action-policy.t
      : worktreeId
        ? getRuntimeEnvironmentIdForWorktree(state, worktreeId)
        : (state.settings?.activeRuntimeEnvironmentId?.trim() ?? null)
-Index: orca-server/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.test.ts
+Index: b/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.test.ts
-+++ orca-server/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.test.ts
+--- a/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.test.ts
++++ b/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.test.ts
 @@ -4,7 +4,6 @@ import { folderWorkspaceKey } from '../.
  import type { AppState } from '../types'
  import { createTestStore, makeWorktree, seedStore, TEST_REPO } from './store-test-helpers'
@@ -1104,10 +1104,10 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/cmd-j-create-actions.t
    })
  
    it('does not fall back to a local terminal tab when paired-web creation fails', async () => {
-Index: orca-server/lib/orca/src/renderer/src/components/settings/CliSkillRuntimeSetup.tsx
+Index: b/lib/orca/src/renderer/src/components/settings/CliSkillRuntimeSetup.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/settings/CliSkillRuntimeSetup.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/settings/CliSkillRuntimeSetup.tsx
+--- a/lib/orca/src/renderer/src/components/settings/CliSkillRuntimeSetup.tsx
++++ b/lib/orca/src/renderer/src/components/settings/CliSkillRuntimeSetup.tsx
 @@ -11,6 +11,7 @@ import { buildWslLoginShellCommand } fro
  import { isWslShellName } from '../../../../shared/local-windows-terminal-runtime'
  import { resolveWindowsShellStartupFamily } from '../../../../shared/windows-terminal-shell'
@@ -1134,10 +1134,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/CliSkillRuntime
    const platform =
      typeof window === 'undefined' ? undefined : window.api?.platform?.get?.()?.platform
    if (platform) {
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-session.ts
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-session.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-session.ts
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-session.ts
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-session.ts
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-session.ts
 @@ -22,7 +22,9 @@ export type RemoteBrowserPageHandle = {
  export type RemoteBrowserPageSessionDeps = {
    tokens: RemoteBrowserOperationTokens
@@ -1149,10 +1149,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remo
    getCurrentUrl(): string
    readStoredHandle(): RemoteBrowserPageHandle | null
    writeStoredHandle(handle: RemoteBrowserPageHandle): void
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-viewport.tsx
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-viewport.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-viewport.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-viewport.tsx
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-viewport.tsx
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-viewport.tsx
 @@ -63,7 +63,9 @@ export function RemoteBrowserPageViewpor
    certificateFailure: BrowserCertificateFailure | null
    remotePageHandle: RemoteBrowserPageHandle | null
@@ -1164,10 +1164,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remo
    runtimeTarget: () => RemoteBrowserRuntimeTarget | null
    onReload: () => void
    onGoto: (url: string) => void
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-screencast-subscription.ts
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-screencast-subscription.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-screencast-subscription.ts
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-screencast-subscription.ts
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-screencast-subscription.ts
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-screencast-subscription.ts
 @@ -19,7 +19,9 @@ export type RemoteBrowserScreencastSubsc
  
  export type RemoteBrowserScreencastRequest = {
@@ -1179,10 +1179,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remo
    pageId: string
    viewportSize: RemoteBrowserViewportSize | null
    deviceScaleFactor: number
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-input.ts
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-input.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-input.ts
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-input.ts
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-input.ts
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-input.ts
 @@ -87,7 +87,9 @@ export function useRemoteBrowserPageInpu
    frameMetadata: BrowserScreencastFrameMetadata | null
    runtimeTarget: () => RemoteBrowserRuntimeTarget | null
@@ -1194,10 +1194,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remo
    enqueueRemoteInput: (operation: () => Promise<void>) => Promise<void>
    createRemoteOperationToken: (remotePageId?: string | null) => RemoteBrowserOperationToken | null
    isCurrentRemoteOperationToken: (token: RemoteBrowserOperationToken) => boolean
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-lifecycle.ts
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-lifecycle.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-lifecycle.ts
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-lifecycle.ts
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-lifecycle.ts
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-lifecycle.ts
 @@ -7,7 +7,7 @@ import type {
    RemoteBrowserViewportSize
  } from './remote-browser-stream-tokens'
@@ -1221,10 +1221,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remo
    const runtimeWorktreeRef = useRef(runtimeWorktree)
    const activeRuntimeEnvironmentIdRef = useRef<string | null>(activeRuntimeEnvironmentId)
    // Why: the stream lifecycle is built once per pane, before the callbacks it needs exist. It
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-navigation.ts
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-navigation.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-navigation.ts
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-navigation.ts
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-navigation.ts
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-navigation.ts
 @@ -52,7 +52,9 @@ export function useRemoteBrowserPageNavi
    imageRef: React.RefObject<HTMLImageElement | null>
    remoteViewportRef: React.RefObject<HTMLDivElement | null>
@@ -1236,10 +1236,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remo
    runtimeTarget: () => RemoteBrowserRuntimeTarget | null
    createRemoteOperationToken: (remotePageId?: string | null) => RemoteBrowserOperationToken | null
    isCurrentRemoteOperationToken: (token: RemoteBrowserOperationToken) => boolean
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-stream.ts
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-stream.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-stream.ts
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-stream.ts
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-stream.ts
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-stream.ts
 @@ -47,7 +47,9 @@ export function useRemoteBrowserPageStre
    browserPageId: string
    isActive: boolean
@@ -1251,10 +1251,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remo
    runtimeTarget: () => RemoteBrowserRuntimeTarget | null
    remoteViewportRef: React.RefObject<HTMLDivElement | null>
    remoteViewportSizeRef: React.MutableRefObject<RemoteBrowserViewportSize | null>
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-wheel.ts
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-wheel.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-wheel.ts
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-wheel.ts
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-wheel.ts
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-page-wheel.ts
 @@ -36,7 +36,9 @@ export function useRemoteBrowserPageWhee
    frameUrl: string | null
    runtimeTarget: () => RemoteBrowserRuntimeTarget | null
@@ -1266,10 +1266,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remo
    getRemoteImagePoint: (event: {
      clientX: number
      clientY: number
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-context-menu.tsx
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-context-menu.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-context-menu.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-context-menu.tsx
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-context-menu.tsx
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/remote-browser-page-context-menu.tsx
 @@ -37,7 +37,9 @@ export function useRemoteBrowserPageCont
    imageRef: React.RefObject<HTMLImageElement | null>
    runtimeTarget: () => RemoteBrowserRuntimeTarget | null
@@ -1281,10 +1281,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remo
    getRemoteImagePoint: (event: {
      clientX: number
      clientY: number
-Index: orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-stream-activation.ts
+Index: b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-stream-activation.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-stream-activation.ts
-+++ orca-server/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-stream-activation.ts
+--- a/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-stream-activation.ts
++++ b/lib/orca/src/renderer/src/components/browser-pane/stream-remote/use-remote-browser-stream-activation.ts
 @@ -9,7 +9,9 @@ type RemoteBrowserStreamActivationOption
    isActive: boolean
    lifecycle: Pick<RemoteBrowserStreamLifecycle, 'open'>

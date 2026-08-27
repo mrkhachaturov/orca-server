@@ -9,6 +9,10 @@ PATCHES="$ROOT/patches"
 
 setup_file() {
   cd "$ROOT" || exit 1
+  # Check 9 rewrites patches, so quilt's prefix must be pinned even when bats
+  # was launched outside `mise run`, which is what exports QUILTRC.
+  : "${QUILTRC:=$ROOT/.quiltrc}"
+  export QUILTRC
   # Remember what was applied so the suite is a no-op on a dev machine mid-work.
   QUILT_STATE_TOP="$(quilt top 2> /dev/null || true)"
   export QUILT_STATE_TOP
@@ -161,8 +165,8 @@ series_entries() {
 
   local owned orphans=""
   owned="$( {
-    grep -h '^+++ orca-server/lib/orca/' "$PATCHES"/*.diff \
-      | sed 's|^+++ orca-server/lib/orca/||' \
+    grep -h '^+++ [^/]*/lib/orca/' "$PATCHES"/*.diff \
+      | sed 's|^+++ [^/]*/lib/orca/||' \
       | sed 's/[[:space:]].*$//'
     [ -d "$ROOT/src" ] && find src -type f
   } | sort -u)"

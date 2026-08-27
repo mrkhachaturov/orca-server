@@ -5,44 +5,48 @@ did nothing - no picker, no error - and no directory could be applied.
 
 The desktop feature is three host operations the browser had a path for none of:
 a native OS dialog, the trust grant that dialog also performs, and a cwd
-resolution that only returns a custom path once it is trusted. Two runtime
-methods, `floatingWorkspace.resolveCwd` and `grantDirectory`, reuse the existing
-`ipc/floating-workspace-directory.ts` helpers; the web client opens the existing
-`RemoteFileBrowser`, then grants and stores what was picked. Both mutate or
-authorize host state, so neither is on `MOBILE_RPC_METHOD_ALLOWLIST`. A refused
+resolution that only returns a custom path once it is trusted. Upstream's
+`ipc/floating-workspace-directory.ts` already implements the last two, but pinned
+them to Electron with two `app.getPath` calls, so the runtime graph could not
+reach them - `config/runtime-electron-baseline.txt` is empty and must stay so.
+Routing those two calls through `AppEnvironment`, the migration upstream already
+performed on ~25 other modules, makes the module and its whole closure portable;
+the helpers then narrow to the one settings field they read and write, so the
+runtime passes its own store with no cast.
+
+Two runtime methods, `floatingWorkspace.resolveCwd` and `grantDirectory`, reuse
+those helpers; the web client opens the existing `RemoteFileBrowser`, then grants
+over the runtime and stores what was picked. The grant goes through
+`callRuntimeRpc`, following `runtime-server-directory-browser.ts`, rather than an
+`AppApi` key the desktop would never call. Both methods mutate or authorize host
+state, so neither is on `MOBILE_RPC_METHOD_ALLOWLIST`, and both resolve through
+`requireStore()`: without persistence a grant is dropped while the call still
+answers ok, so the pane would store a path `resolveCwd` then refuses. A refused
 directory is not stored, because an ungranted path resolves to '' and the input
-renders that as the configured path. Desktop changes once, deliberately:
+renders that as the configured path. The native dialog stays desktop-only.
+Desktop changes once, deliberately:
 `getFloatingWorkspaceDirectoryInputValue` returns the configured path while the
 resolve is outstanding, or the field blanks visibly over a network hop.
 
 To test, pick a directory in Settings > Floating Workspace in the tile, confirm
 it is displayed back and check a floating terminal's cwd; then pick one the
 server cannot grant and confirm the field does not change and the failure is
-reported. Covered by `floating-workspace.test.ts`,
-`FloatingWorkspacePane.test.tsx`,
-`floating-workspace-directory-grant.test.ts` and
-`mobile-rpc-allowlist.test.ts`.
-Index: orca-server/lib/orca/src/main/ipc/app.ts
+reported. The module must carry no `electron` import. Red with this patch popped:
+`floating-workspace-directory-grant.test.ts` - the picker's three grant outcomes -
+and `floating-workspace.test.ts`, the family's registration.
+`FloatingWorkspacePane.test.tsx` and `floating-workspace-directory.test.ts` revert
+to upstream's own versions and `mobile-rpc-allowlist.test.ts` is a patched file
+whose cases popping deletes: all three stay green, so none of them is coverage.
+Index: b/lib/orca/src/main/ipc/floating-workspace-directory.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/ipc/app.ts
-+++ orca-server/lib/orca/src/main/ipc/app.ts
-@@ -325,6 +325,10 @@ export function registerAppHandlers(stor
-   ipcMain.handle('app:pickFloatingWorkspaceDirectory', (event) =>
-     pickFloatingWorkspaceDirectory(event, store)
-   )
-+
-+  ipcMain.handle('app:grantFloatingWorkspaceDirectory', (_event, dirPath: string) =>
-+    grantFloatingWorkspaceDirectory(store, dirPath)
-+  )
- }
- 
- async function runBeforeRelaunchCleanup(
-Index: orca-server/lib/orca/src/main/ipc/floating-workspace-directory.ts
-===================================================================
---- orca-server.orig/lib/orca/src/main/ipc/floating-workspace-directory.ts
-+++ orca-server/lib/orca/src/main/ipc/floating-workspace-directory.ts
-@@ -4,11 +4,20 @@ import path from 'node:path'
- import { app } from 'electron'
+--- a/lib/orca/src/main/ipc/floating-workspace-directory.ts
++++ b/lib/orca/src/main/ipc/floating-workspace-directory.ts
+@@ -1,14 +1,24 @@
+ import { constants as fsConstants } from 'node:fs'
+ import { access, mkdir, realpath, stat } from 'node:fs/promises'
+ import path from 'node:path'
+-import { app } from 'electron'
++import { getAppEnvironment } from '../../shared/app-environment'
  import type { GlobalSettings } from '../../shared/global-settings-types'
  import type { FloatingTerminalCwdRequest } from '../../shared/ui-chrome-types'
 -import type { Store } from '../persistence'
@@ -50,50 +54,94 @@ Index: orca-server/lib/orca/src/main/ipc/floating-workspace-directory.ts
  
  const FLOATING_WORKSPACE_DIRNAME = 'floating-workspace'
  
-+// Why: these helpers only ever read settings and persist the trusted-directory
-+// grant list, so they depend on this minimal surface rather than the full
-+// desktop `Store`. That lets the runtime server reuse them behind an adapter
-+// over its own settings store (web client parity) — the desktop `Store` remains
-+// structurally assignable, so its callers are unchanged.
-+export interface FloatingWorkspaceDirectoryStore {
-+  getSettings(): GlobalSettings
-+  updateSettings(updates: Partial<GlobalSettings>): void
++// Why: these helpers read and write one settings field, so they take that slice
++// rather than the full desktop `Store`. The runtime server reuses them behind an
++// adapter over its own settings store (web client parity); the desktop `Store`
++// stays structurally assignable, so its callers are unchanged.
++type FloatingWorkspaceTrust = Pick<GlobalSettings, 'floatingTerminalTrustedCwds'>
++
++interface FloatingWorkspaceTrustStore {
++  getSettings(): FloatingWorkspaceTrust
++  updateSettings(updates: FloatingWorkspaceTrust): void
 +}
 +
  function expandHomePath(input: string, home: string): string {
    if (input === '~') {
      return home
-@@ -78,7 +87,7 @@ export async function ensureDefaultFloat
+@@ -23,7 +33,7 @@ function expandHomePath(input: string, h
+ }
+ 
+ function resolveFloatingWorkspaceInput(input: string): string {
+-  const home = app.getPath('home')
++  const home = getAppEnvironment().getPath('home')
+   const expanded = expandHomePath(input, home)
+   return path.isAbsolute(expanded) ? path.resolve(expanded) : path.resolve(home, expanded)
+ }
+@@ -41,7 +51,7 @@ async function canonicalizeAccessibleDir
+   }
+ }
+ 
+-function getTrustedFloatingWorkspaceDirectories(settings: GlobalSettings): Set<string> {
++function getTrustedFloatingWorkspaceDirectories(settings: FloatingWorkspaceTrust): Set<string> {
+   return new Set(
+     (settings.floatingTerminalTrustedCwds ?? [])
+       .map((trustedPath) => trustedPath.trim())
+@@ -51,7 +61,7 @@ function getTrustedFloatingWorkspaceDire
+ }
+ 
+ async function getPreservedTrustedFloatingWorkspaceDirectories(
+-  settings: GlobalSettings
++  settings: FloatingWorkspaceTrust
+ ): Promise<Set<string>> {
+   const trustedDirectories = new Set<string>()
+   for (const trustedDir of getTrustedFloatingWorkspaceDirectories(settings)) {
+@@ -63,13 +73,13 @@ async function getPreservedTrustedFloati
+ 
+ function isTrustedFloatingWorkspaceDirectory(
+   canonicalDirPath: string,
+-  settings: GlobalSettings
++  settings: FloatingWorkspaceTrust
+ ): boolean {
+   return getTrustedFloatingWorkspaceDirectories(settings).has(path.resolve(canonicalDirPath))
+ }
+ 
+ export async function ensureDefaultFloatingWorkspacePath(): Promise<string> {
+-  const cwd = path.join(app.getPath('userData'), FLOATING_WORKSPACE_DIRNAME)
++  const cwd = path.join(getAppEnvironment().getPath('userData'), FLOATING_WORKSPACE_DIRNAME)
+   await mkdir(cwd, { recursive: true })
+   // Why: the default floating workspace lives outside repo roots by design;
+   // authorize only this app-owned directory instead of widening access to ~.
+@@ -78,7 +88,7 @@ export async function ensureDefaultFloat
  }
  
  export async function resolveFloatingTerminalCwd(
 -  store: Store,
-+  store: FloatingWorkspaceDirectoryStore,
++  store: FloatingWorkspaceTrustStore,
    args?: FloatingTerminalCwdRequest
  ): Promise<string> {
    const configuredPath = typeof args?.path === 'string' ? args.path.trim() : ''
-@@ -105,7 +114,7 @@ export async function resolveFloatingTer
+@@ -105,7 +115,7 @@ export async function resolveFloatingTer
  }
  
  export async function grantFloatingWorkspaceDirectory(
 -  store: Store,
-+  store: FloatingWorkspaceDirectoryStore,
++  store: FloatingWorkspaceTrustStore,
    dirPath: string
  ): Promise<void> {
    const resolvedDir = resolveFloatingWorkspaceInput(dirPath)
-@@ -124,7 +133,7 @@ export async function grantFloatingWorks
+@@ -124,7 +134,7 @@ export async function grantFloatingWorks
  }
  
  export async function sanitizeFloatingWorkspaceDirectorySetting(
 -  store: Store,
-+  store: FloatingWorkspaceDirectoryStore,
++  store: FloatingWorkspaceTrustStore,
    dirPath: string
  ): Promise<string> {
    const trimmed = dirPath.trim()
-Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+Index: b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
-+++ orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+--- a/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
++++ b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 @@ -183,4 +183,28 @@ describe('mobile RPC allowlist', () => {
      )
      expect(missing).toEqual([])
@@ -123,24 +171,23 @@ Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 +    expect(missing).toEqual([])
 +  })
  })
-Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
+Index: b/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
-+++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -331,6 +331,12 @@ import type {
+--- a/lib/orca/src/main/runtime/orca-runtime.ts
++++ b/lib/orca/src/main/runtime/orca-runtime.ts
+@@ -331,6 +331,11 @@ import type {
  } from '../../shared/terminal-tab-types'
  import type { TuiAgent } from '../../shared/tui-agent'
  import type { BranchPrefixStrategy } from '../../shared/ui-chrome-types'
 +import type { FloatingTerminalCwdRequest } from '../../shared/ui-chrome-types'
 +import {
 +  resolveFloatingTerminalCwd as resolveFloatingTerminalCwdOnHost,
-+  grantFloatingWorkspaceDirectory as grantFloatingWorkspaceDirectoryOnHost,
-+  type FloatingWorkspaceDirectoryStore
++  grantFloatingWorkspaceDirectory as grantFloatingWorkspaceDirectoryOnHost
 +} from '../ipc/floating-workspace-directory'
  import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
  import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../shared/workspace-source'
  import type {
-@@ -20905,6 +20911,32 @@ export class OrcaRuntimeService {
+@@ -20905,6 +20910,21 @@ export class OrcaRuntimeService {
      return scanNestedRepos({ path, options: { timeoutMs: 15_000 } })
    }
  
@@ -149,34 +196,23 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 +  // RPC so the web client (whose floating terminals run on the server) resolves
 +  // the terminal cwd and records picker-approved grants here, exactly like the
 +  // desktop app:getFloatingTerminalCwd handler and the native picker's grant.
-+  private floatingWorkspaceDirectoryStore(): FloatingWorkspaceDirectoryStore {
-+    const store = this.store
-+    return {
-+      // RuntimeStore narrows getSettings()'s type, but the runtime returns the
-+      // full persisted settings object; the helpers only read
-+      // floatingTerminalTrustedCwds, which lives on it.
-+      getSettings: () => (store?.getSettings?.() ?? {}) as unknown as GlobalSettings,
-+      updateSettings: (updates) => {
-+        store?.updateSettings?.(updates)
-+      }
-+    }
-+  }
-+
++  // requireStore, not this.store: without persistence a grant is dropped while
++  // the call still answers ok, so the pane stores a path resolveCwd then refuses.
 +  async resolveFloatingTerminalCwd(args?: FloatingTerminalCwdRequest): Promise<string> {
-+    return resolveFloatingTerminalCwdOnHost(this.floatingWorkspaceDirectoryStore(), args)
++    return resolveFloatingTerminalCwdOnHost(this.requireStore(), args)
 +  }
 +
 +  async grantFloatingWorkspaceDirectory(dirPath: string): Promise<void> {
-+    await grantFloatingWorkspaceDirectoryOnHost(this.floatingWorkspaceDirectoryStore(), dirPath)
++    await grantFloatingWorkspaceDirectoryOnHost(this.requireStore(), dirPath)
 +  }
 +
    async browseServerDir(pathValue: string): Promise<{
      resolvedPath: string
      entries: DirEntry[]
-Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
+Index: b/lib/orca/src/main/runtime/rpc/methods/index.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/index.ts
-+++ orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
+--- a/lib/orca/src/main/runtime/rpc/methods/index.ts
++++ b/lib/orca/src/main/runtime/rpc/methods/index.ts
 @@ -40,6 +40,7 @@ import { PAIRING_METHODS } from './pairi
  import { MOBILE_PAIRING_METHODS } from './mobile-pairing'
  import { UPDATER_METHODS } from './updater'
@@ -193,23 +229,10 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
 +  ...CLI_METHODS,
 +  ...FLOATING_WORKSPACE_METHODS
  ]
-Index: orca-server/lib/orca/src/preload/index.ts
+Index: b/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.test.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/preload/index.ts
-+++ orca-server/lib/orca/src/preload/index.ts
-@@ -595,6 +595,8 @@ const api = {
-       ipcRenderer.invoke('app:pickFloatingMarkdownDocument'),
-     pickFloatingWorkspaceDirectory: (): Promise<string | null> =>
-       ipcRenderer.invoke('app:pickFloatingWorkspaceDirectory'),
-+    grantFloatingWorkspaceDirectory: (dirPath: string): Promise<void> =>
-+      ipcRenderer.invoke('app:grantFloatingWorkspaceDirectory', dirPath),
-     writeTerminalRenderDesyncEvidence: (args: WriteTerminalRenderDesyncEvidenceArgs) =>
-       ipcRenderer.invoke('terminal:writeRenderDesyncEvidence', args)
-   },
-Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.test.tsx
-===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.test.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.test.tsx
+--- a/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.test.tsx
++++ b/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.test.tsx
 @@ -1,5 +1,8 @@
  import { describe, expect, it } from 'vitest'
 -import { getFloatingWorkspaceDirectoryInputValue } from './FloatingWorkspacePane'
@@ -263,11 +286,11 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
 +    ).toBe(false)
 +  })
  })
-Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
+Index: b/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
-@@ -1,10 +1,13 @@
+--- a/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
++++ b/lib/orca/src/renderer/src/components/settings/FloatingWorkspacePane.tsx
+@@ -1,10 +1,14 @@
  import { useEffect, useState } from 'react'
  import { FolderOpen } from 'lucide-react'
 +import { toast } from 'sonner'
@@ -278,10 +301,11 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 +import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 +import { RemoteFileBrowser } from '../sidebar/RemoteFileBrowser'
++import { grantFloatingWorkspaceDirectoryOnRuntime } from '../../runtime/floating-workspace-directory-grant'
  import { SearchableSetting } from './SearchableSetting'
  import { SettingsRow, SettingsSwitchRow } from './SettingsFormControls'
  import { getFloatingWorkspaceSearchEntries } from './floating-workspace-search'
-@@ -29,7 +32,25 @@ export function getFloatingWorkspaceDire
+@@ -29,7 +33,25 @@ export function getFloatingWorkspaceDire
    if (!configuredPath || configuredPath === '~') {
      return '~'
    }
@@ -308,7 +332,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  }
  
  export function FloatingWorkspacePane({
-@@ -39,6 +60,13 @@ export function FloatingWorkspacePane({
+@@ -39,6 +61,13 @@ export function FloatingWorkspacePane({
    const searchQuery = useAppStore((state) => state.settingsSearchQuery)
    const includeBrowser = !isWebClientLocation()
    const [resolvedFloatingWorkspacePath, setResolvedFloatingWorkspacePath] = useState('')
@@ -322,7 +346,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
  
    useEffect(() => {
      let cancelled = false
-@@ -61,13 +89,38 @@ export function FloatingWorkspacePane({
+@@ -61,13 +90,41 @@ export function FloatingWorkspacePane({
      }
    }, [settings.floatingTerminalCwd])
  
@@ -331,14 +355,17 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
 +    updateSettings({ floatingTerminalCwd: path })
 +  }
 +
-+  const grantAndApplyPickedDirectory = async (path: string): Promise<void> => {
++  const grantAndApplyPickedDirectory = async (
++    environmentId: string,
++    path: string
++  ): Promise<void> => {
 +    // Why: mirror the desktop native picker — a user-approved selection is a trust
 +    // grant, so the server must authorize the directory BEFORE it is stored. A refused
 +    // path that is stored anyway resolves to '', which the input then renders as the
 +    // configured directory, so the pane would show a directory the server never granted
 +    // while the floating terminal opened somewhere else entirely.
 +    try {
-+      await window.api.app.grantFloatingWorkspaceDirectory(path)
++      await grantFloatingWorkspaceDirectoryOnRuntime(environmentId, path)
 +    } catch (error) {
 +      toast.error(error instanceof Error ? error.message : String(error))
 +      return
@@ -363,7 +390,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
    }
  
    const directoryInputValue = getFloatingWorkspaceDirectoryInputValue({
-@@ -198,6 +251,36 @@ export function FloatingWorkspacePane({
+@@ -198,6 +255,36 @@ export function FloatingWorkspacePane({
            }
          />
        </SearchableSetting>
@@ -389,7 +416,7 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
 +              runtimeEnvironmentId={activeRuntimeEnvironmentId}
 +              initialPath={settings.floatingTerminalCwd?.trim() || '~'}
 +              onSelect={(path) => {
-+                void grantAndApplyPickedDirectory(path)
++                void grantAndApplyPickedDirectory(activeRuntimeEnvironmentId, path)
 +                setBrowsing(false)
 +              }}
 +              onCancel={() => setBrowsing(false)}
@@ -400,10 +427,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/FloatingWorkspa
      </section>
    )
  }
-Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
 @@ -42,6 +42,7 @@ import {
  } from '../../../shared/pairing-local-ui-fields'
  import type { MemorySnapshot, StatsSummary } from '../../../shared/process-stats-types'
@@ -412,7 +439,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import type { Repo } from '../../../shared/repo-types'
  import type {
    WorkspaceSessionPatch,
-@@ -600,10 +601,29 @@ function createWebPreloadApi(): Partial<
+@@ -600,9 +601,19 @@ function createWebPreloadApi(): Partial<
        getKeyboardLayoutSnapshot: () => Promise.resolve(null),
        onKeyboardLayoutChanged: () => () => undefined,
        setUnreadDockBadgeCount: () => Promise.resolve(),
@@ -431,30 +458,55 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 +      // Why: the web tile has no native OS dialog — the picker is the in-app
 +      // host-fs browser (RemoteFileBrowser), so this native entry stays a no-op.
        pickFloatingWorkspaceDirectory: () => Promise.resolve(null),
-+      // Why: a browser-picked directory must be trusted/authorized on the SERVER
-+      // host (its floating terminals + note creation run there), mirroring the
-+      // grant the desktop native picker records. Runtime-scope only.
-+      grantFloatingWorkspaceDirectory: (dirPath: string) =>
-+        requireActiveEnvironmentOrNull()
-+          ? callRuntimeResult<{ ok: boolean }>('floatingWorkspace.grantDirectory', {
-+              path: dirPath
-+            }).then(() => undefined)
-+          : Promise.resolve(),
        // Browser fallback has no app-owned userData dir; reject so the sentinel can't claim sensitive evidence was persisted.
        writeTerminalRenderDesyncEvidence: () =>
-         Promise.reject(
-Index: orca-server/lib/orca/src/preload/api/app-api.ts
+Index: b/lib/orca/src/main/ipc/floating-workspace-directory.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/preload/api/app-api.ts
-+++ orca-server/lib/orca/src/preload/api/app-api.ts
-@@ -65,6 +65,10 @@ export type AppApi = {
-   /** Opens a native directory picker and authorizes the selected directory
-    *  for Floating Workspace markdown file creation. */
-   pickFloatingWorkspaceDirectory: () => Promise<string | null>
-+  /** Authorizes an already-chosen directory (e.g. from the web client's in-app
-+   *  host-fs browser, which has no native picker) as a Floating Workspace trust
-+   *  grant — the same grant the native picker records. */
-+  grantFloatingWorkspaceDirectory: (dirPath: string) => Promise<void>
-   /** Persists flag-gated terminal render evidence under app-owned userData. */
-   writeTerminalRenderDesyncEvidence: (
-     args: WriteTerminalRenderDesyncEvidenceArgs
+--- a/lib/orca/src/main/ipc/floating-workspace-directory.test.ts
++++ b/lib/orca/src/main/ipc/floating-workspace-directory.test.ts
+@@ -2,19 +2,13 @@ import { mkdtemp, mkdir, realpath, rm, s
+ import os from 'node:os'
+ import path from 'node:path'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { installFakeAppEnvironment } from '../../../config/scripts/vitest-host-ports-setup'
+ import type { GlobalSettings } from '../../shared/global-settings-types'
+ 
+-const { appGetPathMock, authorizeExternalPathMock } = vi.hoisted(() => ({
+-  appGetPathMock: vi.fn(),
++const { authorizeExternalPathMock } = vi.hoisted(() => ({
+   authorizeExternalPathMock: vi.fn()
+ }))
+ 
+-vi.mock('electron', () => ({
+-  app: {
+-    getPath: appGetPathMock
+-  }
+-}))
+-
+ vi.mock('./filesystem-auth', () => ({
+   authorizeExternalPath: authorizeExternalPathMock
+ }))
+@@ -58,14 +52,16 @@ describe('floating workspace directory a
+     homeDir = path.join(tempRoot, 'home')
+     userDataDir = path.join(tempRoot, 'user-data')
+     await mkdir(homeDir)
+-    appGetPathMock.mockImplementation((name: string) => {
+-      if (name === 'home') {
+-        return homeDir
+-      }
+-      if (name === 'userData') {
+-        return userDataDir
++    installFakeAppEnvironment({
++      getPath: (name) => {
++        if (name === 'home') {
++          return homeDir
++        }
++        if (name === 'userData') {
++          return userDataDir
++        }
++        throw new Error(`unexpected app path: ${name}`)
+       }
+-      throw new Error(`unexpected app path: ${name}`)
+     })
+     authorizeExternalPathMock.mockClear()
+   })

@@ -57,4 +57,21 @@ describe('floating-workspace RPC methods', () => {
     expect(response).toMatchObject({ ok: false })
     expect(mocks.grantFloatingWorkspaceDirectory).not.toHaveBeenCalled()
   })
+
+  it('registers the three methods on the runtime', async () => {
+    // Why: the tile routes the directory picker, the floating terminal cwd and New/Open
+    // Markdown Note through these. A family missing from ALL_RPC_METHODS is refused by
+    // the dispatcher, so the picker silently never applies the chosen path while this
+    // handler stays green.
+    const { ALL_RPC_METHODS } = await import('./index')
+    const registered = new Set(ALL_RPC_METHODS.map((method) => method.name))
+
+    expect(
+      [
+        'floatingWorkspace.resolveCwd',
+        'floatingWorkspace.grantDirectory',
+        'floatingWorkspace.markdownDirectory'
+      ].filter((method) => !registered.has(method))
+    ).toEqual([])
+  })
 })

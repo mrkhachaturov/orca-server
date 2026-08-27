@@ -33,9 +33,17 @@ Orca v9.99.999
 
 Orca v1.4.190
 
+### Added
+
+- Settings > Plugins now lists the server's plugins in the browser, and enabling,
+  consent and plugin panels work there. Installing from the tile still does not.
+
 ### Changed
 
-- Update to Orca v1.4.190
+- Update to Orca v1.4.190, two releases on. All twelve carried patches were
+  re-justified against the new tag and all twelve were kept; five shrank, none
+  were dropped, and a thirteenth was added for plugins in the browser.
+- The active workspace is restored after a restart on desktop as well as in the browser.
 
 ## [4.188.0] - 2026-08-26
 

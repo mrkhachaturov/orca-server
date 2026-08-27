@@ -31,7 +31,7 @@ function main() {
   fi
 
   local owners
-  owners=$(grep -l "^+++ orca-server/lib/orca/$rel\([[:space:]]\|\$\)" patches/*.diff 2> /dev/null \
+  owners=$(grep -l "^+++ [^/]*/lib/orca/$rel\([[:space:]]\|\$\)" patches/*.diff 2> /dev/null \
     | xargs -n1 basename 2> /dev/null || true)
   if [ -n "$owners" ]; then
     echo "patch     $rel"

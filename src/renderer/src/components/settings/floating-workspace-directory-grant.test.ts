@@ -8,6 +8,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
+import type { grantFloatingWorkspaceDirectoryOnRuntime } from '../../runtime/floating-workspace-directory-grant'
 
 const mocks = vi.hoisted(() => {
   const holder = {
@@ -25,9 +26,14 @@ const mocks = vi.hoisted(() => {
     useAppStore,
     recordFeatureInteraction: vi.fn(),
     onSelectHolder: { select: null as ((path: string) => void) | null },
-    toastError: vi.fn()
+    toastError: vi.fn(),
+    grantOnRuntime: vi.fn<typeof grantFloatingWorkspaceDirectoryOnRuntime>()
   }
 })
+
+vi.mock('../../runtime/floating-workspace-directory-grant', () => ({
+  grantFloatingWorkspaceDirectoryOnRuntime: mocks.grantOnRuntime
+}))
 
 vi.mock('sonner', () => ({ toast: { error: mocks.toastError, success: vi.fn() } }))
 
@@ -73,27 +79,27 @@ function makeSettings(): GlobalSettings {
     floatingTerminalEnabled: true,
     floatingTerminalCwd: '~',
     floatingTerminalTriggerLocation: 'floating-button',
-    activeRuntimeEnvironmentId: 'web-env-1'
+    activeRuntimeEnvironmentId: ENVIRONMENT_ID
   } as unknown as GlobalSettings
 }
 
+const ENVIRONMENT_ID = 'web-env-1'
+
 describe('floating workspace directory grant failure', () => {
-  let grantFloatingWorkspaceDirectory: ReturnType<typeof vi.fn>
   let updateSettings: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     mocks.recordFeatureInteraction.mockReset()
     mocks.toastError.mockReset()
+    mocks.grantOnRuntime.mockReset()
     mocks.holder.state.settingsSearchQuery = ''
     mocks.holder.state.recordFeatureInteraction = mocks.recordFeatureInteraction
     mocks.onSelectHolder.select = null
-    grantFloatingWorkspaceDirectory = vi.fn()
     updateSettings = vi.fn()
     ;(window as unknown as { api: unknown }).api = {
       app: {
         getFloatingTerminalCwd: vi.fn().mockResolvedValue(''),
-        pickFloatingWorkspaceDirectory: vi.fn().mockResolvedValue(null),
-        grantFloatingWorkspaceDirectory
+        pickFloatingWorkspaceDirectory: vi.fn().mockResolvedValue(null)
       }
     }
   })
@@ -113,12 +119,12 @@ describe('floating workspace directory grant failure', () => {
     await user.click(screen.getByLabelText('Choose floating workspace directory'))
     await user.click(await screen.findByTestId('confirm-pick'))
     await waitFor(() => {
-      expect(grantFloatingWorkspaceDirectory).toHaveBeenCalledWith(PICKED_PATH)
+      expect(mocks.grantOnRuntime).toHaveBeenCalledWith(ENVIRONMENT_ID, PICKED_PATH)
     })
   }
 
   it('stores the picked directory when the server grant succeeds', async () => {
-    grantFloatingWorkspaceDirectory.mockResolvedValue(undefined)
+    mocks.grantOnRuntime.mockResolvedValue(undefined)
 
     await pickDirectory()
 
@@ -128,7 +134,7 @@ describe('floating workspace directory grant failure', () => {
   }, 15_000)
 
   it('does not store a directory the server refused to authorise', async () => {
-    grantFloatingWorkspaceDirectory.mockRejectedValue(
+    mocks.grantOnRuntime.mockRejectedValue(
       new Error('floatingWorkspace.grantDirectory: EACCES')
     )
 
@@ -137,13 +143,13 @@ describe('floating workspace directory grant failure', () => {
     // A stored path the server refused resolves to '', which the input renders as the
     // configured directory — so the pane would show a directory that was never authorised.
     await waitFor(() => {
-      expect(grantFloatingWorkspaceDirectory).toHaveBeenCalledTimes(1)
+      expect(mocks.grantOnRuntime).toHaveBeenCalledTimes(1)
     })
     expect(updateSettings).not.toHaveBeenCalled()
   }, 15_000)
 
   it('tells the user why the directory was refused', async () => {
-    grantFloatingWorkspaceDirectory.mockRejectedValue(
+    mocks.grantOnRuntime.mockRejectedValue(
       new Error('floatingWorkspace.grantDirectory: EACCES')
     )
 

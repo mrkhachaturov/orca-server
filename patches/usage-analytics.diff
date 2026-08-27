@@ -15,31 +15,51 @@ have a symptom in that pane today - the renderer slice batches through
 `getSnapshot` - so the rest are specified against the desktop
 `<provider>Usage:` IPC handlers they mirror.
 
-To test, open Settings > Stats & Usage in the tile, enable a provider and scan;
-the ledger should match what the same host shows on desktop. Covered by
-`usage.test.ts`, a case per method, and `mobile-rpc-allowlist.test.ts`.
+The three stores reach the RPC through `src/main/usage/usage-store-registry.ts`,
+following the registry upstream introduces at v1.4.190 in `ssh/ssh-target-registry.ts`:
+each store is a process singleton owning a cache file and a flush on quit, so a
+second instance constructed runtime-side would be a defect, and the registry's
+type-only imports keep `electron` out of the runtime graph that
+`config/runtime-electron-baseline.txt` requires to stay empty. The runtime itself
+therefore never learns that usage exists. An unregistered provider throws
+`usage_provider_unavailable:<provider>` rather than answering `undefined` - that
+silent `undefined` is the failure this patch removes.
 
-Index: orca-server/lib/orca/src/main/index.ts
+To test, open Settings > Stats & Usage in the tile, enable a provider and scan;
+the ledger should match what the same host shows on desktop. Red with this patch
+popped: `web-usage-analytics.test.ts` - a case per method - and `usage.test.ts`,
+the family's registration. `mobile-rpc-allowlist.test.ts` stays green popped: it
+is a patched file, so popping deletes its cases rather than failing them. The
+`setUsageProviderStores` call in `main/index.ts` carries no test - nothing here
+exercises Electron's entry point.
+Index: b/lib/orca/src/main/index.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/index.ts
-+++ orca-server/lib/orca/src/main/index.ts
-@@ -2733,6 +2733,12 @@ void app.whenReady().then(async () => {
-       }),
-     buildAgentHookPtyEnv: () =>
-       isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {},
-+    // Why: the usage stores are constructed above in the shared startup path (the
-+    // same block as StatsCollector), so they scan under `orca serve` too — only the
-+    // browser had no way to ask them. One registry, so adding a token-analytics
-+    // provider stays a single line here.
-+    getUsageStore: (provider) =>
-+      provider === 'claude' ? claudeUsage : provider === 'codex' ? codexUsage : openCodeUsage,
-     orchestrationEnvironmentTransport,
-     skillTransactionRecovery
-   })
-Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+--- a/lib/orca/src/main/index.ts
++++ b/lib/orca/src/main/index.ts
+@@ -47,6 +47,7 @@ import { AgentSessionTransitionRecorder
+ import { ClaudeUsageStore, initClaudeUsagePath } from './claude-usage/store'
+ import { CodexUsageStore, initCodexUsagePath } from './codex-usage/store'
+ import { OpenCodeUsageStore, initOpenCodeUsagePath } from './opencode-usage/store'
++import { setUsageProviderStores } from './usage/usage-store-registry'
+ import {
+   killAllPty,
+   clearProviderPtyState,
+@@ -2543,6 +2544,11 @@ void app.whenReady().then(async () => {
+   claudeUsage = new ClaudeUsageStore(store)
+   codexUsage = new CodexUsageStore(store)
+   openCodeUsage = new OpenCodeUsageStore(store)
++  // Why: this block runs in the shared startup path, so the stores scan under
++  // `orca serve` too — only the browser had no way to ask them. Registering here
++  // rather than passing a resolver into the runtime keeps the three singletons the
++  // desktop IPC handlers use as the only instances.
++  setUsageProviderStores({ claude: claudeUsage, codex: codexUsage, openCode: openCodeUsage })
+   rateLimits = new RateLimitService()
+   codexRuntimeHome = new CodexRuntimeHomeService(store)
+   void startCodexStateDbBackfillRecoveryInBackground(getOrcaManagedCodexHomePath())
+Index: b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
-+++ orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+--- a/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
++++ b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 @@ -3,6 +3,17 @@ import { join } from 'node:path'
  import { describe, expect, it } from 'vitest'
  import { ALL_RPC_METHODS } from './rpc/methods'
@@ -83,106 +103,10 @@ Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
    it('does not grant mobile credentials control over floating-workspace directories', () => {
      // Why: floatingWorkspace.resolveCwd authorizes an external path and
      // grantDirectory writes a trusted-directory grant into settings — both are
-Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
+Index: b/lib/orca/src/main/runtime/rpc/methods/index.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
-+++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -405,6 +405,7 @@ import {
- import type { SshConnectionState } from '../../shared/ssh-types'
- import { getPublicSshState } from './public-ssh-state'
- import { closeTerminalTabInWorkspaceSession } from '../../shared/workspace-session-terminal-tab-close'
-+import type { RuntimeUsageProvider } from '../../shared/runtime-usage-providers'
- import {
-   describeTerminalExitCause,
-   isDeliberateTerminalExit,
-@@ -3037,6 +3038,38 @@ type ProviderSnapshotReadOptions = {
-   visibleScreenOnly?: boolean
- }
- 
-+// Why: one list, so a fourth token-analytics provider is a registry entry in
-+// main/index.ts plus a name here — never another RPC method or preload stub.
-+// Declared in a leaf module so rpc/methods/usage.ts can VALUE-import it without closing
-+// an import cycle back into this file. Re-exported here for existing consumers; the
-+// companion `import type` above keeps the name in local scope (a bare `export type`
-+// re-export does not, and this file uses RuntimeUsageProvider at 3 call sites).
-+export { RUNTIME_USAGE_PROVIDERS } from '../../shared/runtime-usage-providers'
-+export type { RuntimeUsageProvider } from '../../shared/runtime-usage-providers'
-+
-+export type RuntimeUsageScope = 'orca' | 'all'
-+export type RuntimeUsageRange = '7d' | '30d' | '90d' | 'all'
-+export type RuntimeUsageBreakdownKind = 'model' | 'project'
-+
-+// Why: ClaudeUsageStore, CodexUsageStore and OpenCodeUsageStore expose an identical
-+// eight-method surface, and their per-provider scope/range/kind types are the same
-+// string unions spelled three times. One structural type serves all three, so the
-+// runtime never has to know which provider it is holding.
-+export type RuntimeUsageStore = {
-+  getScanState(): unknown
-+  setEnabled(enabled: boolean): unknown
-+  refresh(force: boolean): unknown
-+  getSnapshot(scope: RuntimeUsageScope, range: RuntimeUsageRange, limit?: number): unknown
-+  getSummary(scope: RuntimeUsageScope, range: RuntimeUsageRange): unknown
-+  getDaily(scope: RuntimeUsageScope, range: RuntimeUsageRange): unknown
-+  getBreakdown(
-+    scope: RuntimeUsageScope,
-+    range: RuntimeUsageRange,
-+    kind: RuntimeUsageBreakdownKind
-+  ): unknown
-+  getRecentSessions(scope: RuntimeUsageScope, range: RuntimeUsageRange, limit?: number): unknown
-+}
-+
- export class OrcaRuntimeService {
-   private readonly runtimeId = randomUUID()
-   private readonly startedAt = Date.now()
-@@ -3765,6 +3798,14 @@ export class OrcaRuntimeService {
-       buildAgentHookPtyEnv?: () => Record<string, string>
-       getDesktopWindowStatus?: () => RuntimeDesktopWindowStatus
-       agentSessionClaimSigner?: AgentSessionClaimSigner
-+      // Why: usage scanning lives in main-process stores reachable on the desktop
-+      // only through their `<provider>Usage:` IPC channels. A browser has no
-+      // ipcRenderer, so the tile's Stats & Usage pane sat on the preload fallback
-+      // proxy where every call resolves to undefined and the enable buttons did
-+      // nothing at all. Resolve lazily so usage.* reaches the same instances the
-+      // desktop handlers use — the logs, the scanner and the stores are already
-+      // on this host; only the pipe was missing.
-+      getUsageStore?: (provider: RuntimeUsageProvider) => RuntimeUsageStore | null
-       orchestrationEnvironmentTransport?: OrchestrationEnvironmentTransport
-       skillTransactionRecovery?: Promise<unknown>
-     }
-@@ -3816,6 +3857,7 @@ export class OrcaRuntimeService {
-     this.onTerminalAgentStatus = deps?.onTerminalAgentStatus ?? null
-     this.buildAgentHookPtyEnv = deps?.buildAgentHookPtyEnv ?? null
-     this.getDesktopWindowStatusFn = deps?.getDesktopWindowStatus ?? (() => 'openable')
-+    this.usageStoreResolver = deps?.getUsageStore ?? null
-     this.prepareAiVaultSessionResumeFn = deps?.prepareAiVaultSessionResume ?? null
-     this.agentSessionClaimSigner =
-       deps?.agentSessionClaimSigner ?? createEphemeralAgentSessionClaimSigner(this.runtimeId)
-@@ -5774,6 +5816,21 @@ export class OrcaRuntimeService {
-     await sessions?.dispose()
-   }
- 
-+  private usageStoreResolver:
-+    | ((provider: RuntimeUsageProvider) => RuntimeUsageStore | null)
-+    | null = null
-+
-+  // Why: fail loudly rather than answer undefined. The preload fallback's silent
-+  // undefined is what made this feature look broken instead of unavailable, so the
-+  // bridge that replaces it must never reproduce that.
-+  getUsageStore(provider: RuntimeUsageProvider): RuntimeUsageStore {
-+    const store = this.usageStoreResolver?.(provider) ?? null
-+    if (!store) {
-+      throw new Error(`usage_provider_unavailable:${provider}`)
-+    }
-+    return store
-+  }
-+
-   getRuntimeId(): string {
-     return this.runtimeId
-   }
-Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
-===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/index.ts
-+++ orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
+--- a/lib/orca/src/main/runtime/rpc/methods/index.ts
++++ b/lib/orca/src/main/runtime/rpc/methods/index.ts
 @@ -41,6 +41,7 @@ import { MOBILE_PAIRING_METHODS } from '
  import { UPDATER_METHODS } from './updater'
  import { CLI_METHODS } from './cli'
@@ -199,21 +123,21 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
 +  ...FLOATING_WORKSPACE_METHODS,
 +  ...USAGE_METHODS
  ]
-Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -957,6 +957,9 @@ function createWebPreloadApi(): Partial<
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
+@@ -948,6 +948,9 @@ function createWebPreloadApi(): Partial<
      preflight: createPreflightApi(),
      notifications: createNotificationsApi(),
      rateLimits: createRateLimitsApi(),
-+    claudeUsage: createUsageApi('claude'),
-+    codexUsage: createUsageApi('codex'),
-+    openCodeUsage: createUsageApi('openCode'),
++    claudeUsage: createUsageApi('claudeUsage'),
++    codexUsage: createUsageApi('codexUsage'),
++    openCodeUsage: createUsageApi('openCodeUsage'),
      minimaxCredentials: createMiniMaxCredentialsApi(),
      grokAccounts: createGrokAccountsApi(),
      codexAccounts: createAccountsApi(),
-@@ -3354,6 +3357,52 @@ function createNotificationsApi(): NonNu
+@@ -3345,6 +3348,47 @@ function createNotificationsApi(): NonNu
    }
  }
  
@@ -222,14 +146,25 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 +// yet" and its enable buttons did nothing at all. The three desktop namespaces differ
 +// only by channel prefix, so one factory carries the provider as a parameter rather
 +// than repeating the same eight methods three times.
-+// Why `never`: PreloadApi declares ClaudeUsageApi / CodexUsageApi / OpenCodeUsageApi
-+// as three separate types whose payloads differ by name and, for scan state, by one
-+// field — so no single annotation satisfies all three call sites. Same escape hatch
-+// createAccountsApi already uses in this file for codexAccounts/claudeAccounts. The
-+// wire contract is JSON either way: the runtime returns exactly what the desktop
-+// store returns.
-+function createUsageApi(provider: 'claude' | 'codex' | 'openCode'): never {
-+  const call = (method: string, params: Record<string, unknown> = {}): Promise<unknown> =>
++// The overload mirrors upstream's own createUsageProviderApi: PreloadApi declares the
++// three namespaces as separate types, and the generic return is what lets one body
++// serve all three without asserting the result away.
++type UsageProviderApiKey = 'claudeUsage' | 'codexUsage' | 'openCodeUsage'
++type UsageRangeArgs = { scope: string; range: string }
++
++const USAGE_PROVIDER_BY_KEY = {
++  claudeUsage: 'claude',
++  codexUsage: 'codex',
++  openCodeUsage: 'openCode'
++} as const
++
++function createUsageApi<Key extends UsageProviderApiKey>(key: Key): PreloadApi[Key]
++function createUsageApi(key: UsageProviderApiKey): PreloadApi[UsageProviderApiKey] {
++  const provider = USAGE_PROVIDER_BY_KEY[key]
++  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- upstream's ipc.invoke
++  // is likewise `Promise<any>`; the wire contract is JSON and the runtime returns exactly
++  // what the desktop store returns.
++  const call = (method: string, params: Record<string, unknown> = {}): Promise<any> =>
 +    callRuntimeResult<unknown>(`usage.${method}`, { provider, ...params })
 +  return {
 +    getScanState: () => call('getScanState'),
@@ -238,28 +173,12 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
 +    // keys, so omit it entirely rather than sending an explicit undefined.
 +    refresh: (args?: { force?: boolean }) =>
 +      call('refresh', args?.force === undefined ? {} : { force: args.force }),
-+    getSnapshot: (args: UsageWindowArgs) => call('getSnapshot', pruneUsageWindow(args)),
-+    getSummary: (args: UsageWindowArgs) =>
-+      call('getSummary', { scope: args.scope, range: args.range }),
-+    getDaily: (args: UsageWindowArgs) => call('getDaily', { scope: args.scope, range: args.range }),
-+    getBreakdown: (args: UsageWindowArgs & { kind: string }) =>
-+      call('getBreakdown', { scope: args.scope, range: args.range, kind: args.kind }),
-+    getRecentSessions: (args: UsageWindowArgs) =>
-+      call('getRecentSessions', pruneUsageWindow(args))
-+  } as never
-+}
-+
-+type UsageWindowArgs = { scope: string; range: string; limit?: number }
-+
-+function pruneUsageWindow(args: {
-+  scope: string
-+  range: string
-+  limit?: number
-+}): Record<string, unknown> {
-+  return {
-+    scope: args.scope,
-+    range: args.range,
-+    ...(args.limit === undefined ? {} : { limit: args.limit })
++    getSnapshot: (args: UsageRangeArgs & { limit?: number }) => call('getSnapshot', args),
++    getSummary: (args: UsageRangeArgs) => call('getSummary', args),
++    getDaily: (args: UsageRangeArgs) => call('getDaily', args),
++    getBreakdown: (args: UsageRangeArgs & { kind: string }) => call('getBreakdown', args),
++    getRecentSessions: (args: UsageRangeArgs & { limit?: number }) =>
++      call('getRecentSessions', args)
 +  }
 +}
 +

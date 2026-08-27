@@ -16,18 +16,21 @@ agent and provider session off this host's agent-hook rows - disk-hydrated at
 startup, so they survive the restart that killed the agent - and hands them to
 `ensureAgentSession` as an explicit one. A configured `tab.launchAgent` outranks
 the hook row and a disagreement drops the resume, since agent and provider
-session must move together. A refused or unresolvable resume falls through to
+session must move together. The owner is decided by upstream's own
+`resolvePaneAgentOwner`, and agreement by `resolveCompatibleAgentTypeForOwner`,
+so an omp pane whose hook row reports `pi` still resumes - they are one title
+identity, and a bare equality check drops exactly that case. A refused or unresolvable resume falls through to
 the plain materialize rather than leaving the tab untappable.
 
 To test, restart the workspace, open an agent pane in the tile and continue the
 conversation: the agent should answer with full prior context and run shell
 commands. Covered by `headless-agent-cold-restore.test.ts` and
 `headless-agent-cold-restore-precedence.test.ts`.
-Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
+Index: b/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
-+++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -388,8 +388,14 @@ import { preservedBranchCleanupScopeKey
+--- a/lib/orca/src/main/runtime/orca-runtime.ts
++++ b/lib/orca/src/main/runtime/orca-runtime.ts
+@@ -387,8 +387,14 @@ import { preservedBranchCleanupScopeKey
  import { getRegisteredSshState } from '../ssh/ssh-target-registry'
  import type {
    AgentProviderSessionMetadata,
@@ -42,7 +45,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import type { ExactWorkerProviderSession } from '../../shared/orchestration-worker-output'
  import type { RuntimeClientEvent } from '../../shared/runtime-client-events'
  import { toRuntimeActivateWorktreeEvent } from '../../shared/runtime-client-events'
-@@ -8965,11 +8971,52 @@ export class OrcaRuntimeService {
+@@ -8907,11 +8913,64 @@ export class OrcaRuntimeService {
          let agentStartup: Awaited<
            ReturnType<OrcaRuntimeService['resolveMobileSessionTerminalCommand']>
          > = {}
@@ -57,9 +60,21 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 +        // provider session move together — resuming a claude session under a tab configured for
 +        // codex would attach the wrong provider to that session id. So the cache only fills a
 +        // blank, and a disagreement drops the resume rather than the configuration.
++        // Why upstream's resolvers and not `===`: resolvePaneAgentOwner is the precedence chain
++        // this reimplemented, and resolveCompatibleAgentTypeForOwner is why an omp pane whose
++        // hook row reports `pi` still resumes — same title identity, one agent. A bare equality
++        // drops exactly that case, which is the one the helper exists for.
 +        const startupAgent = tab.launchAgent ?? coldRestore?.agent
++        const ownerAgent = resolvePaneAgentOwner({
++          launchAgent: tab.launchAgent ?? null,
++          hookAgent: coldRestore?.agent ?? null
++        })
 +        const resumable =
-+          coldRestore && coldRestore.agent === startupAgent ? coldRestore : null
++          coldRestore &&
++          isResumableTuiAgent(ownerAgent) &&
++          resolveCompatibleAgentTypeForOwner(coldRestore.agent, ownerAgent) === ownerAgent
++            ? { agent: ownerAgent, providerSession: coldRestore.providerSession }
++            : null
 +        if (resumable) {
 +          // Why hand this to ensureAgentSession rather than build the launch here: it already
 +          // owns the whole resume — the execution-owner check, the signed session claim,
@@ -97,7 +112,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
              })
            } catch {
              // Why: a disabled or unresolvable agent must not make the tab
-@@ -8988,7 +9035,7 @@ export class OrcaRuntimeService {
+@@ -8930,7 +8989,7 @@ export class OrcaRuntimeService {
              env: agentStartup.env,
              startupCommandDelivery: agentStartup.startupCommandDelivery,
              launchConfig: agentStartup.launchConfig,
@@ -106,34 +121,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
              targetGroupId
            })
          } catch (err) {
-@@ -29150,16 +29197,16 @@ export class OrcaRuntimeService {
-       terminalWindowsShell: settings.terminalWindowsShell
-     })
-     const startupPlan = buildAgentStartupPlan({
--      agent: opts.agent,
--      prompt: opts.agentPrompt ?? '',
--      cmdOverrides: settings.agentCmdOverrides ?? {},
--      agentArgs: resolveTuiAgentLaunchArgs(opts.agent, settings.agentDefaultArgs),
--      agentEnv: resolveTuiAgentLaunchEnv(opts.agent, settings.agentDefaultEnv),
--      platform,
--      shell: queuedShell,
--      isRemote,
--      allowEmptyPromptLaunch: true
--    })
-+        agent: opts.agent,
-+        prompt: opts.agentPrompt ?? '',
-+        cmdOverrides: settings.agentCmdOverrides ?? {},
-+        agentArgs: resolveTuiAgentLaunchArgs(opts.agent, settings.agentDefaultArgs),
-+        agentEnv: resolveTuiAgentLaunchEnv(opts.agent, settings.agentDefaultEnv),
-+        platform,
-+        shell: queuedShell,
-+        isRemote,
-+        allowEmptyPromptLaunch: true
-+      })
-     if (!startupPlan) {
-       throw new Error(`Could not build launch command for ${opts.agent}.`)
-     }
-@@ -29187,6 +29234,36 @@ export class OrcaRuntimeService {
+@@ -29118,6 +29177,36 @@ export class OrcaRuntimeService {
      }
    }
  

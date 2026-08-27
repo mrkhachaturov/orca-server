@@ -12,37 +12,61 @@ the same shell-path hydration so `pathConfigured` matches what a PTY sees. None
 is on `MOBILE_RPC_METHOD_ALLOWLIST`: a paired phone must never register or
 remove host commands.
 
-To test, open Settings > CLI in the tile, register the CLI, then run `orca-ide`
-in a terminal on the workspace. Covered by `cli.test.ts` and
-`mobile-rpc-allowlist.test.ts`.
+The hydration and the three installer calls move to `src/main/cli/cli-registration.ts`,
+following the split upstream performs at v1.4.190 on `ipc/preflight.ts`,
+`ipc/ssh.ts` and `ipc/plugins.ts`: the domain logic leaves the handler file and
+`ipcMain.handle` stays behind to call it. Reaching them through `ipc/cli.ts`
+instead would pull `import { ipcMain } from 'electron'` into the runtime's
+import graph, which `config/runtime-electron-baseline.txt` requires to stay
+empty.
 
-Index: orca-server/lib/orca/src/main/ipc/cli.ts
+To test, open Settings > CLI in the tile, register the CLI, then run `orca-ide`
+in a terminal on the workspace. `node config/scripts/check-runtime-electron-ratchet.mjs`
+must report 0 entries. Red with this patch popped: `web-cli-registration.test.ts`
+- the three routed members - and `cli.test.ts`, the family's registration.
+`cli-registration.test.ts` and `mobile-rpc-allowlist.test.ts` stay green popped:
+the first tests overlay code, the second is a patched file, so popping deletes
+its cases rather than failing them. Both are guards, not coverage.
+Index: b/lib/orca/src/main/ipc/cli.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/ipc/cli.ts
-+++ orca-server/lib/orca/src/main/ipc/cli.ts
-@@ -56,21 +56,31 @@ async function hydrateLocalShellPathForC
+--- a/lib/orca/src/main/ipc/cli.ts
++++ b/lib/orca/src/main/ipc/cli.ts
+@@ -1,6 +1,10 @@
+ import { ipcMain } from 'electron'
+ import type { CliInstallStatus } from '../../shared/cli-install-types'
+-import { CliInstaller } from '../cli/cli-installer'
++import {
++  getCliInstallStatusWithShellPathHydration,
++  installCliWithShellPathHydration,
++  removeCliWithShellPathHydration
++} from '../cli/cli-registration'
+ import {
+   recordWslCliRegistrationInstalled,
+   recordWslCliRegistrationRemoved
+@@ -8,7 +12,6 @@ import {
+ import { WslCliInstaller } from '../cli/wsl-cli-installer'
+ import { runSerializedWslCliRegistrationOperation } from '../cli/wsl-cli-registration-operation'
+ import { getCanonicalUserDataPath } from '../persistence'
+-import { hydrateShellPath, mergePathSegments } from '../startup/hydrate-shell-path'
+ import { getDefaultWslDistro } from '../wsl'
+ 
+ function normalizeWslCliDistro(args?: { distro?: string | null }): string | undefined {
+@@ -44,33 +47,12 @@ async function persistWslCliRegistration
    }
  }
  
-+// Why: exported so the runtime RPC (`cli.*`) can reuse the exact IPC behavior —
-+// the web client's terminals run on THIS server, so it must probe/register the
-+// server's `orca-ide`, not anything in the browser. Same shell-path hydration
-+// as the desktop handlers keeps `pathConfigured` matched to what a PTY sees.
-+export async function getCliInstallStatusWithShellPathHydration(): Promise<CliInstallStatus> {
-+  await hydrateLocalShellPathForCli()
-+  return new CliInstaller().getStatus()
-+}
-+
-+export async function installCliWithShellPathHydration(): Promise<CliInstallStatus> {
-+  await hydrateLocalShellPathForCli(true)
-+  return new CliInstaller().install()
-+}
-+
-+export async function removeCliWithShellPathHydration(): Promise<CliInstallStatus> {
-+  await hydrateLocalShellPathForCli()
-+  return new CliInstaller().remove()
-+}
-+
+-async function hydrateLocalShellPathForCli(force = false): Promise<void> {
+-  if (process.platform === 'win32') {
+-    return
+-  }
+-  // Why: CLI registration must match `which orca` in the user's terminal, not
+-  // the sparse PATH a GUI-launched Electron process inherited from launchd.
+-  const hydration = await hydrateShellPath(force ? { force: true } : undefined)
+-  if (hydration.ok) {
+-    mergePathSegments(hydration.segments)
+-  }
+-}
+-
  export function registerCliHandlers(): void {
 -  ipcMain.handle('cli:getInstallStatus', async (): Promise<CliInstallStatus> => {
 -    await hydrateLocalShellPathForCli()
@@ -66,10 +90,10 @@ Index: orca-server/lib/orca/src/main/ipc/cli.ts
  
    ipcMain.handle(
      'cli:getWslInstallStatus',
-Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+Index: b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
-+++ orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+--- a/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
++++ b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 @@ -161,4 +161,26 @@ describe('mobile RPC allowlist', () => {
        )
      ).toEqual([])
@@ -97,10 +121,10 @@ Index: orca-server/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
 +    expect(missing).toEqual([])
 +  })
  })
-Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
+Index: b/lib/orca/src/main/runtime/rpc/methods/index.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/index.ts
-+++ orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
+--- a/lib/orca/src/main/runtime/rpc/methods/index.ts
++++ b/lib/orca/src/main/runtime/rpc/methods/index.ts
 @@ -39,6 +39,7 @@ import { EMULATOR_METHODS } from './emul
  import { PAIRING_METHODS } from './pairing'
  import { MOBILE_PAIRING_METHODS } from './mobile-pairing'
@@ -117,10 +141,10 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/index.ts
 +  ...UPDATER_METHODS,
 +  ...CLI_METHODS
  ]
-Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
 @@ -41,6 +41,7 @@ import {
    type PairingLocalUiField
  } from '../../../shared/pairing-local-ui-fields'

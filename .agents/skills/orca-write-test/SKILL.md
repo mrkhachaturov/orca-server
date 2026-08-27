@@ -99,7 +99,7 @@ desktop handler it mirrors) and record that limit in the patch header rather tha
 A new test file goes in the overlay, at `src/<path>`, mirroring where it must land under
 `lib/orca/src/`. No quilt command touches it. A test that *modifies* an upstream test file stays in
 the patch that modifies it: `quilt add` **before** the first edit — see `orca-patch-author` — then
-`quilt refresh` and confirm with `grep -c '^+++ orca-server/lib/orca/<path>$'
+`quilt refresh` and confirm with `grep -c '^+++ b/lib/orca/<path>$'
 patches/<patch>.diff`. Either way the file count from `mise run test:unit` must rise.
 
 Name the test file in the patch header's *To test* line, in backticks. `series.bats` check 5

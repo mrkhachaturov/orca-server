@@ -1,0 +1,118 @@
+Reach the host's plugins from the web client
+
+Settings > Plugins listed nothing in the tile and its enable, consent and panel
+controls did nothing at all - no error, no effect - while the same host showed
+every installed plugin on desktop.
+
+`window.api.plugins` was absent from the web preload, so each member fell through
+`createFallbackProxy` and resolved to `undefined`. The wire already exists:
+v1.4.190 split `main/plugins/plugin-client-list.ts` out of `ipc/plugins.ts`
+specifically so `plugins.list` RPC could reach it without `ipcMain`, and
+`main/index.ts` installs the plugin service through `setPluginServiceForRpc`
+inside `app.whenReady()` - the shared startup path `orca serve` runs. Both routes
+execute through PluginService's single chokepoint, so a permission decision
+cannot differ between a local window and a paired client.
+
+Six of the twenty-one members have a runtime method. The rest - install, the
+marketplace surfaces, logs and refresh - exist only as `ipcMain` handlers
+upstream, so they are deliberately left off this object: `withFallback` resolves
+missing keys per key, which keeps their present behaviour rather than turning a
+silent `undefined` into a rejection, and it already answers an `on*` name with a
+no-op unsubscribe, which `onChanged` needs in order to stay synchronous. So this
+restores listing, enabling, consent and the panel bridge; installing a plugin
+from the tile still needs a wire upstream does not have.
+
+No allowlist change: `plugins.*` mutates host state and stays off
+`MOBILE_RPC_METHOD_ALLOWLIST`, where upstream already leaves it. That is now
+asserted rather than assumed - every other family this series routes pins itself
+off the allowlist with a negative case, and plugins was the one that did not.
+
+To test, open Settings > Plugins in the tile: the installed plugins should list,
+and toggling one should stick across a reload. Red with this patch popped:
+`web-plugins-bridge.test.ts`. `mobile-rpc-allowlist.test.ts` stays green popped -
+it is a patched file, so popping deletes its two plugin cases rather than failing
+them; they guard the allowlist, they do not cover this patch.
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
+===================================================================
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
+@@ -951,6 +951,7 @@ function createWebPreloadApi(): Partial<
+     claudeUsage: createUsageApi('claudeUsage'),
+     codexUsage: createUsageApi('codexUsage'),
+     openCodeUsage: createUsageApi('openCodeUsage'),
++    plugins: createPluginsApi(),
+     minimaxCredentials: createMiniMaxCredentialsApi(),
+     grokAccounts: createGrokAccountsApi(),
+     codexAccounts: createAccountsApi(),
+@@ -2821,6 +2822,29 @@ function createRuntimeNamespaceApi(prefi
+   }) as never
+ }
+ 
++// Why: `window.api.plugins` was absent, so every member fell through createFallbackProxy and
++// resolved to undefined — the Plugins pane listed nothing and its enable/consent controls did
++// nothing. v1.4.190 added the wire on purpose: `plugins.list` reaches
++// `main/plugins/plugin-client-list.ts`, split out of `ipc/plugins.ts` so the RPC can read it
++// without ipcMain, and main/index.ts installs the service in the shared startup path that
++// `orca serve` runs.
++//
++// Six of the twenty-one members have a runtime method; the rest (install, marketplaces, logs,
++// refresh) exist only as ipcMain handlers upstream. Those are deliberately left off this object
++// so withFallback keeps answering them exactly as before — it resolves missing keys per key, and
++// already maps an `on*` name to a no-op unsubscribe, which `onChanged` needs to stay synchronous.
++function createPluginsApi(): PreloadApi['plugins'] {
++  return {
++    list: () => callRuntimeResult('plugins.list'),
++    consent: (args) => callRuntimeResult('plugins.consent', args),
++    setEnabled: (args) => callRuntimeResult('plugins.setEnabled', args),
++    readPanelEntry: (args) => callRuntimeResult('plugins.readPanelEntry', args),
++    invokeCommand: (args) => callRuntimeResult('plugins.invokeCommand', args),
++    panelAction: (args) => callRuntimeResult('plugins.panelAction', args)
++    // The remaining members are supplied by withFallback; see above.
++  } as PreloadApi['plugins']
++}
++
+ function createHooksApi(): NonNullable<Partial<PreloadApi>['hooks']> {
+   return {
+     check: async ({ repoId }) => callRuntimeResult('repo.hooksCheck', { repo: repoId }),
+Index: b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+===================================================================
+--- a/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
++++ b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+@@ -14,6 +14,15 @@ const USAGE_RPC_METHODS = [
+   'usage.getRecentSessions'
+ ]
+ 
++const PLUGIN_RPC_METHODS = [
++  'plugins.list',
++  'plugins.consent',
++  'plugins.setEnabled',
++  'plugins.panelAction',
++  'plugins.readPanelEntry',
++  'plugins.invokeCommand'
++]
++
+ const MOBILE_DYNAMIC_RPC_METHODS = [
+   // Why: computed sendRequest method names do not appear as literals in the
+   // mobile source scan below, but still must stay mobile-authorized.
+@@ -243,4 +252,21 @@ describe('mobile RPC allowlist', () => {
+     ].filter((method) => !registered.has(method))
+     expect(missing).toEqual([])
+   })
++
++  it('does not grant mobile credentials control over host plugins', () => {
++    // Why: plugins.setEnabled and plugins.consent decide which third-party code runs on
++    // the host and with which capabilities, and invokeCommand/panelAction execute it.
++    // The web tile reaches the family in runtime scope only; a paired phone must never
++    // be the surface that grants consent. Upstream leaves it off today - this is the
++    // check that keeps it off.
++    const allowed = mobileRpcAllowlist()
++    expect(PLUGIN_RPC_METHODS.filter((method) => allowed.has(method))).toEqual([])
++  })
++
++  it('registers the plugin methods the web preload routes', () => {
++    // Why: the tile's Plugins pane has no ipcMain to fall back to. Dropping one from
++    // ALL_RPC_METHODS returns that pane to the empty list this bridge exists to fix.
++    const registered = registeredRuntimeMethods()
++    expect(PLUGIN_RPC_METHODS.filter((method) => !registered.has(method))).toEqual([])
++  })
+ })

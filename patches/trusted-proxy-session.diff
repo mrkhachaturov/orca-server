@@ -9,22 +9,41 @@ proof the proxy already authenticated. The credential cannot simply be omitted:
 an Orca pairing offer carries `publicKeyB64` alongside `deviceToken` and is the
 channel's key material rather than an authorisation check, so `WebRuntimeClient`
 cannot be constructed without it. Delivery moves from the URL fragment to a
-loopback-gated `GET /trusted-session`, answering at exactly that path and
-nowhere else so a credential is never reachable from under `/assets/`;
-`createPairingOffer` is reused unmodified, so E2EE is intact. The client dials
-same-origin from `window.location`, so the tile needs no `--pairing-address`,
-and on `auth-failed` it re-probes and adopts a new offer.
+loopback-gated `GET /trusted-session`; `createPairingOffer` is reused unmodified,
+so E2EE is intact. The client dials same-origin from `window.location`, so the
+tile needs no `--pairing-address`, and on `auth-failed` it re-probes and adopts a
+new offer.
+
+The route resolves through upstream's own `mapProxyPrefixedStaticPathname`, the
+mapper that already forwards a reverse proxy's path prefix for `/web-index.html`
+and `/assets/`: the client probes `new URL('trusted-session', location.href)`, so
+a page served under a path-forwarding proxy asks for `/<prefix>/trusted-session`
+and an exact match alone would 404 it back to the paste form. The mapping is
+added after the asset branch, never before, so a credential is still unreachable
+from under `/assets/`. Loopback, not the path shape, is the gate.
+
+The offer is minted with `reach: 'this-computer'`. It shares one pending runtime
+device with the "Share this Orca server" grant, and `getOrCreatePendingDevice`
+widens reach but never narrows it, so an omitted reach would silently re-widen
+what that grant just pinned and let the next reconnect bind every interface
+(STA-2370). The `--trusted-proxy` loopback bind and the `ensureNetworkExposure`
+guard both stay as defence in depth: `createMobilePairingOffer` calls
+`ensureNetworkExposure` unconditionally, before its `local-only` branch, so it is
+this patch's guard that keeps the web tile's mobile pairing from publishing the
+runtime on every interface.
 
 To test, open the workspace tile: the full Orca web UI should load with no
-pairing prompt. See `static-web-client-handler.test.ts` - the endpoint serves
-the offer with `Cache-Control: no-store` to a loopback peer, 404s a non-loopback
-one, 503s before an offer can be minted, 404s a nested path such as
-`/assets/foo/trusted-session`, answers `HEAD` with headers and no body, and is
-absent entirely when trusted-proxy mode is off.
-Index: orca-server/lib/orca/src/cli/handlers/core.ts
+pairing prompt; repeat behind a path-forwarding proxy. Covered by
+`static-web-client-handler.test.ts` - the endpoint serves the offer with
+`Cache-Control: no-store` to a loopback peer, 404s a non-loopback one, 503s
+before an offer can be minted, answers a forwarded `/<prefix>/trusted-session`,
+still 404s `/assets/foo/trusted-session`, answers `HEAD` with headers and no
+body, and is absent entirely when trusted-proxy mode is off - and by
+`trusted-session-pairing-reach.test.ts` for the shared pending device's reach.
+Index: b/lib/orca/src/cli/handlers/core.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/cli/handlers/core.ts
-+++ orca-server/lib/orca/src/cli/handlers/core.ts
+--- a/lib/orca/src/cli/handlers/core.ts
++++ b/lib/orca/src/cli/handlers/core.ts
 @@ -129,6 +129,7 @@ export const CORE_HANDLERS: Record<strin
        noPairing: flags.get('no-pairing') === true,
        mobilePairing: flags.get('mobile-pairing') === true,
@@ -33,10 +52,10 @@ Index: orca-server/lib/orca/src/cli/handlers/core.ts
        projectRoot
      })
      process.exitCode = exitCode
-Index: orca-server/lib/orca/src/cli/runtime/launch.ts
+Index: b/lib/orca/src/cli/runtime/launch.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/cli/runtime/launch.ts
-+++ orca-server/lib/orca/src/cli/runtime/launch.ts
+--- a/lib/orca/src/cli/runtime/launch.ts
++++ b/lib/orca/src/cli/runtime/launch.ts
 @@ -82,6 +82,7 @@ export function serveOrcaApp(
      noPairing?: boolean
      mobilePairing?: boolean
@@ -55,10 +74,10 @@ Index: orca-server/lib/orca/src/cli/runtime/launch.ts
    if (args.recipeJson) {
      if (!args.projectRoot) {
        throw new RuntimeClientError(
-Index: orca-server/lib/orca/src/cli/specs/serve.ts
+Index: b/lib/orca/src/cli/specs/serve.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/cli/specs/serve.ts
-+++ orca-server/lib/orca/src/cli/specs/serve.ts
+--- a/lib/orca/src/cli/specs/serve.ts
++++ b/lib/orca/src/cli/specs/serve.ts
 @@ -6,11 +6,12 @@ export const SERVE_COMMAND_SPECS: Comman
      path: ['serve'],
      summary: 'Start an Orca runtime server without opening a desktop window',
@@ -81,10 +100,10 @@ Index: orca-server/lib/orca/src/cli/specs/serve.ts
        'When the web client bundle is available, the server also prints a browser URL with the pairing data embedded.'
      ],
      examples: [
-Index: orca-server/lib/orca/src/main/index.ts
+Index: b/lib/orca/src/main/index.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/index.ts
-+++ orca-server/lib/orca/src/main/index.ts
+--- a/lib/orca/src/main/index.ts
++++ b/lib/orca/src/main/index.ts
 @@ -1953,6 +1953,8 @@ type ServeOptions = {
    mobilePairing: boolean
    recipeJson: boolean
@@ -116,10 +135,10 @@ Index: orca-server/lib/orca/src/main/index.ts
    })
    registerMobileHandlers(runtimeRpc, {
      getRelayStatus: () => desktopRelayStatus,
-Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
+Index: b/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
-+++ orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
+--- a/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
++++ b/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
 @@ -17,17 +17,63 @@ const STATIC_WEB_CONTENT_TYPES = new Map
    ['.woff2', 'font/woff2']
  ])
@@ -187,11 +206,12 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
  ): Promise<void> {
    if (request.method !== 'GET' && request.method !== 'HEAD') {
      response.setHeader('Allow', 'GET, HEAD')
-@@ -40,6 +86,11 @@ async function handleStaticRequest(
+@@ -40,6 +86,12 @@ async function handleStaticRequest(
      writeHttpStatus(response, 400)
      return
    }
-+  // Why: exact match only — the payload is a device credential, so it must not be reachable from an arbitrary path such as `/assets/foo/trusted-session`.
++  // Why: exact match on the already-prefix-mapped path — the payload is a device credential,
++  // so it must not be reachable from an arbitrary path such as `/assets/foo/trusted-session`.
 +  if (options.trustedSessionProvider && pathname === '/trusted-session') {
 +    handleTrustedSessionRequest(request, response, options.trustedSessionProvider)
 +    return
@@ -199,10 +219,24 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/static-web-client-handler.ts
    if (!isAllowedStaticWebPath(pathname)) {
      writeHttpStatus(response, 404)
      return
-Index: orca-server/lib/orca/src/main/runtime/rpc/ws-transport.ts
+@@ -123,6 +175,13 @@ function mapProxyPrefixedStaticPathname(
+     // Orca. Only the bundled /assets subtree is served after the prefix.
+     return pathname.slice(assetIndex)
+   }
++  // Why: after the asset branch, never before it — the payload is a device credential, so
++  // `/assets/foo/trusted-session` must stay an asset lookup and 404 rather than mint one.
++  // The client probes `new URL('trusted-session', location.href)`, which under a
++  // path-forwarding proxy resolves to `/<prefix>/trusted-session`.
++  if (pathname.endsWith('/trusted-session')) {
++    return '/trusted-session'
++  }
+   return pathname
+ }
+ 
+Index: b/lib/orca/src/main/runtime/rpc/ws-transport.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/rpc/ws-transport.ts
-+++ orca-server/lib/orca/src/main/runtime/rpc/ws-transport.ts
+--- a/lib/orca/src/main/runtime/rpc/ws-transport.ts
++++ b/lib/orca/src/main/runtime/rpc/ws-transport.ts
 @@ -41,6 +41,8 @@ export type WebSocketTransportOptions =
    fallbackPort?: number
    // Why: serve --port clients dial the pinned port; prefer it first so a stale fallback can't steal the pin (issue #8535). Default keeps fallback-first (STA-1511).
@@ -252,11 +286,19 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/ws-transport.ts
        : undefined
      return this.tlsCert && this.tlsKey
        ? createHttpsServer({ cert: this.tlsCert, key: this.tlsKey }, requestListener)
-Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
+Index: b/lib/orca/src/main/runtime/runtime-rpc.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/runtime-rpc.ts
-+++ orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
-@@ -74,6 +74,10 @@ type OrcaRuntimeRpcServerOptions = {
+--- a/lib/orca/src/main/runtime/runtime-rpc.ts
++++ b/lib/orca/src/main/runtime/runtime-rpc.ts
+@@ -22,6 +22,7 @@ import { WebSocketTransport } from './rp
+ import { readWsFallbackPort, writeWsFallbackPort } from './rpc/ws-fallback-port-store'
+ import type { WebSocket } from 'ws'
+ import { DeviceRegistry, type DeviceEntry, type DeviceScope } from './device-registry'
++import { webSessionDeviceName } from './mobile-pairing-service'
+ import { loadOrCreateE2EEKeypair, type E2EEKeypair } from './e2ee-keypair'
+ import { UnpairedDeviceAuthThrottle } from './rpc/unpaired-device-auth-throttle'
+ import {
+@@ -74,6 +75,10 @@ type OrcaRuntimeRpcServerOptions = {
    // Only `orca serve` (explicit remote opt-in) and E2E set this; the desktop app widens lazily on pairing.
    exposeNetworkByDefault?: boolean
    webClientRoot?: string
@@ -267,7 +309,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    // Why: test-only overrides for the two constants below; production must not pass these (defaults set by §3.1).
    keepaliveIntervalMs?: number
    longPollCap?: number
-@@ -489,6 +493,8 @@ export class OrcaRuntimeRpcServer {
+@@ -489,6 +494,8 @@ export class OrcaRuntimeRpcServer {
    private readonly preferPinnedWsPort: boolean
    private readonly exposeNetworkByDefault: boolean
    private readonly webClientRoot: string | undefined
@@ -276,7 +318,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    // Why: STA-2370 — the host the WS listener is currently bound to, so pairing can widen loopback→all-interfaces once.
    private wsBoundHost: string | null = null
    // Why: STA-2370 — in-flight widen so concurrent pairing requests share a single rebind.
-@@ -547,6 +553,8 @@ export class OrcaRuntimeRpcServer {
+@@ -547,6 +554,8 @@ export class OrcaRuntimeRpcServer {
      preferPinnedWsPort = false,
      exposeNetworkByDefault = false,
      webClientRoot,
@@ -285,7 +327,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
      keepaliveIntervalMs = KEEPALIVE_INTERVAL_MS,
      longPollCap = LONG_POLL_CAP,
      metadataOwnershipPollMs = RUNTIME_METADATA_OWNERSHIP_POLL_MS
-@@ -561,6 +569,8 @@ export class OrcaRuntimeRpcServer {
+@@ -561,6 +570,8 @@ export class OrcaRuntimeRpcServer {
      this.preferPinnedWsPort = preferPinnedWsPort
      this.exposeNetworkByDefault = exposeNetworkByDefault
      this.webClientRoot = webClientRoot
@@ -294,7 +336,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
      this.keepaliveIntervalMs = keepaliveIntervalMs
      this.longPollCap = longPollCap
      this.metadataOwnershipPollMs = metadataOwnershipPollMs
-@@ -661,6 +671,19 @@ export class OrcaRuntimeRpcServer {
+@@ -661,6 +672,24 @@ export class OrcaRuntimeRpcServer {
      return ws?.endpoint ?? null
    }
  
@@ -306,7 +348,12 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
 +      // Why: without a name these mint as the "CLI <date>" default, so browser
 +      // sessions masquerade as command-line clients in the shared-access list.
 +      // Named device classes are the upstream convention (Mobile/Runtime <date>).
-+      name: `Web session ${new Date().toLocaleDateString()}`
++      name: webSessionDeviceName(),
++      // Why: STA-2370 — this offer and createRuntimeGrant's share one pending runtime
++      // device, and getOrCreatePendingDevice widens reach but never narrows it. Omitting
++      // reach here defaults to 'network', which would silently re-widen the reach the
++      // grant beside it just pinned, and let a reconnect rebind every interface.
++      reach: 'this-computer'
 +    })
 +    return offer.available ? offer.pairingUrl : null
 +  }
@@ -314,7 +361,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
    createPairingOffer(args: {
      address?: string | null
      name?: string
-@@ -1244,6 +1267,12 @@ export class OrcaRuntimeRpcServer {
+@@ -1244,6 +1273,12 @@ export class OrcaRuntimeRpcServer {
    // A grant minted for "This computer only" is excluded: its client is a browser on this machine, so
    // counting it would republish the runtime on every interface one restart after the user declined that.
    private resolveInitialWebSocketBindHost(): string {
@@ -327,7 +374,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
      if (this.exposeNetworkByDefault) {
        return WS_BIND_HOST_ALL_INTERFACES
      }
-@@ -1271,6 +1300,11 @@ export class OrcaRuntimeRpcServer {
+@@ -1271,6 +1306,11 @@ export class OrcaRuntimeRpcServer {
        host: options.host,
        port: options.port,
        staticRoot: this.webClientRoot,
@@ -339,7 +386,7 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
        ...(options.fallbackPort !== undefined ? { fallbackPort: options.fallbackPort } : {}),
        ...(options.preferPinnedPort ? { preferPinnedPort: true } : {})
      })
-@@ -1365,7 +1399,12 @@ export class OrcaRuntimeRpcServer {
+@@ -1365,7 +1405,12 @@ export class OrcaRuntimeRpcServer {
      if (
        !this.enableWebSocket ||
        this.stopping ||
@@ -353,10 +400,10 @@ Index: orca-server/lib/orca/src/main/runtime/runtime-rpc.ts
      ) {
        return
      }
-Index: orca-server/lib/orca/src/renderer/src/web/main.tsx
+Index: b/lib/orca/src/renderer/src/web/main.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/main.tsx
-+++ orca-server/lib/orca/src/renderer/src/web/main.tsx
+--- a/lib/orca/src/renderer/src/web/main.tsx
++++ b/lib/orca/src/renderer/src/web/main.tsx
 @@ -1,6 +1,6 @@
  import '../assets/main.css'
  
@@ -428,10 +475,10 @@ Index: orca-server/lib/orca/src/renderer/src/web/main.tsx
  
    if (!hasEnvironment) {
      return (
-Index: orca-server/lib/orca/src/renderer/src/web/web-pairing.ts
+Index: b/lib/orca/src/renderer/src/web/web-pairing.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-pairing.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-pairing.ts
+--- a/lib/orca/src/renderer/src/web/web-pairing.ts
++++ b/lib/orca/src/renderer/src/web/web-pairing.ts
 @@ -75,6 +75,36 @@ export function decideWebPairingStartup(
      : { kind: 'show-connect', initialPairingInput: null }
  }
@@ -469,10 +516,10 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-pairing.ts
  export function clearPairingInputFromAddressBar(): void {
    if (!window.location.hash && !window.location.search) {
      return
-Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
 @@ -131,7 +131,11 @@ import {
    updateStoredEnvironmentRuntimeId,
    type StoredWebRuntimeEnvironment
@@ -537,10 +584,10 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
      activeClientEnvironmentId = environment.id
    }
    return activeClient
-Index: orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
+Index: b/lib/orca/src/renderer/src/web/web-runtime-client.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-runtime-client.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-runtime-client.ts
+--- a/lib/orca/src/renderer/src/web/web-runtime-client.ts
++++ b/lib/orca/src/renderer/src/web/web-runtime-client.ts
 @@ -98,7 +98,11 @@ export class WebRuntimeClient {
    private readonly waiters: { resolve: () => void; reject: (error: Error) => void }[] = []
    private readonly serverPublicKey: Uint8Array
