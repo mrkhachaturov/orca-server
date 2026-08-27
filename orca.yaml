@@ -1,0 +1,9 @@
+scripts:
+  setup: mise run link-local
+
+worktree:
+  sharedDirectories:
+    - .cache
+    - .agents/skills/orca-wiki
+    - .claude/skills/orca-wiki
+    - .claude/commands

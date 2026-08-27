@@ -4,6 +4,7 @@ node_modules
 
 /.rumdl_cache
 /dist
+/.orca
 
 # Quilt's internal data.
 /.pc

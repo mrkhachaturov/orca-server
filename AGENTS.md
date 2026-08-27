@@ -52,7 +52,7 @@ rest in parallel. Run `up` by hand only before a hand-run `vitest`.
 CI. Run it after a bump and after any change to the series — see **Searching Orca** below.
 
 **Every task lives in a folder, and that folder is what CI reads.** `tree/`, `build/` and `test/`
-run the full matrix on change; `lint/`, `kodus/` and `hooks/` run lint alone. Put a new task in the
+run the full matrix on change; `lint/`, `kodus/`, `hooks/` and `orca/` run lint alone. Put a new task in the
 folder matching what it can reach. Short names survive as `#MISE alias`, so `mise run up` reaches
 `tree:up`.
 
