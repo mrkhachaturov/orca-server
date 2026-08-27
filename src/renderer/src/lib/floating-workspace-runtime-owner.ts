@@ -47,12 +47,4 @@ export function getFloatingWorkspaceRuntimeEnvironmentId(
  * Same value as the floating owner above; separate name because that rule is deliberate
  * and this one is a backstop.
  */
-export function getWebClientLocalFallbackEnvironmentId(
-  state: Pick<WorktreeRuntimeOwnerState, 'settings' | 'runtimeEnvironments'>
-): string | null {
-  return resolveFloatingWorkspaceRuntimeEnvironmentId({
-    isWebClient: isWebClientLocation(),
-    activeRuntimeEnvironmentId: state.settings?.activeRuntimeEnvironmentId,
-    runtimeEnvironments: state.runtimeEnvironments
-  })
-}
+export const getWebClientLocalFallbackEnvironmentId = getFloatingWorkspaceRuntimeEnvironmentId

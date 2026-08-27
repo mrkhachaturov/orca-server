@@ -41,7 +41,7 @@ cp /tmp/keep lib/orca/<file> && quilt refresh
 Verify the file landed in the patch — the count is the check, not the "Refreshed patch" line:
 
 ```bash
-grep -c '^+++ orca-server/lib/orca/<file>$' patches/<patch>.diff   # must be 1
+grep -c '^+++ b/lib/orca/<file>$' patches/<patch>.diff   # must be 1
 ```
 
 ## A file that does not exist upstream — the overlay

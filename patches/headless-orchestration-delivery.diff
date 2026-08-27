@@ -15,11 +15,11 @@ gated on `getLeavesForPty` being empty, so a desktop pane is never pointed twice
 To test, have a coordinator send run mail to an idle agent in the tile and watch the pointer
 arrive without anyone prompting that agent. Covered by
 `headless-orchestration-delivery.test.ts`.
-Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
+Index: b/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
-+++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -247,7 +247,10 @@ import {
+--- a/lib/orca/src/main/runtime/orca-runtime.ts
++++ b/lib/orca/src/main/runtime/orca-runtime.ts
+@@ -248,7 +248,10 @@ import {
  } from './orchestration/federation-ack-checkpoints'
  import { syncFederatedDispatch } from './orchestration/federation-sync'
  import { MailPointerRepointScheduler } from './orchestration/mail-pointer-repoint-scheduler'
@@ -31,7 +31,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import { OrchestrationMailboxNotificationCoordinator } from './orchestration/mailbox-notification-coordinator'
  import { OrchestrationMailboxDeliveryTarget } from './orchestration/mailbox-delivery-target'
  import {
-@@ -1532,6 +1535,31 @@ type RuntimePtyWorktreeRecord = {
+@@ -1533,6 +1536,31 @@ type RuntimePtyWorktreeRecord = {
    tailWaitState?: TerminalTailWaitState
  }
  
@@ -63,7 +63,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  type TerminalAgentStatusSnapshot = {
    waitText: string
    waitBlockedAt: number | null
-@@ -3181,9 +3209,9 @@ export class OrcaRuntimeService {
+@@ -3191,9 +3219,9 @@ export class OrcaRuntimeService {
    private messageWaitersByHandle = new Map<string, Set<MessageWaiter>>()
    private readonly orchestrationMailboxOwner = new OrchestrationMailboxOwner({
      getDb: () => this._orchestrationDb,
@@ -75,7 +75,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      getTerminalProcessIncarnation: (handle) => this.getTerminalProcessIncarnation(handle),
      onRoutedMessageTypes: (mailboxHandle, types) =>
        this.orchestrationMailboxNotifications.wakeRoutedMessageWaiters(mailboxHandle, types),
-@@ -3203,12 +3231,12 @@ export class OrcaRuntimeService {
+@@ -3213,12 +3241,12 @@ export class OrcaRuntimeService {
        mailboxOwner: this.orchestrationMailboxOwner,
        deliveryTarget: this.orchestrationMailboxDeliveryTarget,
        getDb: () => this._orchestrationDb,
@@ -91,7 +91,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        isLeafPtyProvenAbsent: (ptyId) => this.isLeafPtyProvenAbsent(ptyId),
        redriveMailbox: (mailboxHandle, reservedTypes) =>
          this.deliverPendingMessagesForHandle(mailboxHandle, reservedTypes),
-@@ -3219,7 +3247,7 @@ export class OrcaRuntimeService {
+@@ -3229,7 +3257,7 @@ export class OrcaRuntimeService {
        mailboxOwner: this.orchestrationMailboxOwner,
        pointerDelivery: this.orchestrationMailboxPointerDelivery,
        getDb: () => this._orchestrationDb,
@@ -100,7 +100,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        getPaneKeyForHandle: (handle) => {
          const record = this.handles.get(handle)
          return record ? `${record.tabId}:${record.leafId}` : undefined
-@@ -11813,6 +11841,7 @@ export class OrcaRuntimeService {
+@@ -11840,6 +11868,7 @@ export class OrcaRuntimeService {
      const pty = this.ptysById.get(ptyId)
      if (pty) {
        const prevStatus = pty.lastAgentStatus
@@ -108,7 +108,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        const prevTitle = pty.lastOscTitle
        const observedAt = this.nextTitleObservationSequence()
        const observedAtEpochMs = identityOnlyTitle ? null : Date.now()
-@@ -11841,6 +11870,21 @@ export class OrcaRuntimeService {
+@@ -11868,6 +11897,21 @@ export class OrcaRuntimeService {
        if (agentStatus === 'idle' && prevStatus !== 'idle') {
          this.resolvePtyTuiIdleWaiters(pty, ptyId)
        }
@@ -130,7 +130,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        const shouldDelayMobileSnapshot =
          ptyRecordChanged &&
          this.shouldDelayPtyBackedMobileSnapshotForForegroundAgent(pty, normalizedTitle)
-@@ -34901,10 +34945,49 @@ export class OrcaRuntimeService {
+@@ -34953,10 +34997,49 @@ export class OrcaRuntimeService {
      }
    }
  

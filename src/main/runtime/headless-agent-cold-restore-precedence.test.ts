@@ -125,6 +125,24 @@ describe('cold-restore agent precedence', () => {
     expect(plainCreates[0]?.launchAgent).toBe('codex')
   })
 
+  it('resumes when the hook row names a title-compatible sibling of the configured agent', async () => {
+    // Why: `pi` and `omp` share the `pi-compatible` title identity group, so a pane configured
+    // for omp whose hook row reports pi is ONE agent, not a disagreement. A bare equality check
+    // drops that resume — which is the case resolveCompatibleAgentTypeForOwner exists for — and
+    // the pane comes back cold with its session stranded.
+    const { runtime, resumes, plainCreates } = activateHarness([hookRow({ agentType: 'pi' })], 'omp')
+    await runtime.activateMobileSessionTab(WORKTREE, TAB, LEAF)
+
+    expect(resumes).toHaveLength(1)
+    // The configured agent owns the pane; the hook row only supplied which session to resume.
+    expect(resumes[0]).toMatchObject({
+      kind: 'explicit',
+      agent: 'omp',
+      providerSession: { id: SESSION_ID }
+    })
+    expect(plainCreates).toHaveLength(0)
+  })
+
   it('falls back to a plain create when the pane has no provider session', async () => {
     const { runtime, resumes, plainCreates } = activateHarness(
       [hookRow({ agentType: 'claude', providerSession: undefined })],

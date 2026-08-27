@@ -9,6 +9,9 @@
 
 set -Eeuo pipefail
 
+# Inherited git env would point `git -C` at the outer repo — see .mise/lib.sh.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+
 function main() {
 
   local arg=${1-}
@@ -31,7 +34,7 @@ function main() {
   fi
 
   local owners
-  owners=$(grep -l "^+++ orca-server/lib/orca/$rel\([[:space:]]\|\$\)" patches/*.diff 2> /dev/null \
+  owners=$(grep -l "^+++ [^/]*/lib/orca/$rel\([[:space:]]\|\$\)" patches/*.diff 2> /dev/null \
     | xargs -n1 basename 2> /dev/null || true)
   if [ -n "$owners" ]; then
     echo "patch     $rel"

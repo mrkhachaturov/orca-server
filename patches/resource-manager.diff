@@ -18,10 +18,10 @@ processes rather than zeros; then revoke the device and confirm the pane says
 the daemon is not responding. Covered by `web-resource-manager.test.ts`, which
 separates the two failure shapes - a transport rejection and an `ok:false`
 envelope - from the unpaired case.
-Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
 @@ -905,7 +905,19 @@ function createWebPreloadApi(): Partial<
          }))
      },

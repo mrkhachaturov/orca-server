@@ -28,8 +28,8 @@ main() {
 
   local tests
   tests="$({
-    grep -h '^+++ orca-server/lib/orca/' patches/*.diff \
-      | sed 's|^+++ orca-server/lib/orca/||'
+    grep -h '^+++ [^/]*/lib/orca/' patches/*.diff \
+      | sed 's|^+++ [^/]*/lib/orca/||'
     [ -d src ] && find src -type f
   } | grep -E '\.test\.tsx?$' | sort -u)"
 

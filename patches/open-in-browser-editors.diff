@@ -23,10 +23,10 @@ it. Covered by `open-in-url-template.test.ts`, `open-in-applications.test.ts`,
 `WorktreeOpenInMenu.test.tsx`, `external-editor-open-capability.test.ts`,
 `client-ui.test.ts` and `runtime-seeded-settings.test.ts`.
 
-Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
+Index: b/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
-+++ orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
+--- a/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
++++ b/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
 @@ -60,6 +60,47 @@ describe('client UI RPC methods', () =>
      expect(response).toMatchObject({ ok: true, result: { settings } })
    })
@@ -75,10 +75,10 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.test.ts
    it('persists the runtime host task source settings for mobile Tasks', async () => {
      const settings = {
        defaultTuiAgent: null,
-Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
+Index: b/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
-+++ orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
+--- a/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
++++ b/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
 @@ -16,7 +16,19 @@ export const CLIENT_UI_METHODS: RpcMetho
    defineMethod({
      name: 'settings.get',
@@ -100,10 +100,10 @@ Index: orca-server/lib/orca/src/main/runtime/rpc/methods/client-ui.ts
    }),
    defineMethod({
      name: 'settings.update',
-Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.test.ts
+Index: b/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.test.ts
-+++ orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.test.ts
+--- a/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.test.ts
++++ b/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.test.ts
 @@ -3,8 +3,10 @@ import {
    createPresetOpenInApplication,
    shouldCommitOpenInApplicationsDraft
@@ -201,10 +201,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetti
 +    ).toBe(true)
 +  })
 +})
-Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.tsx
+Index: b/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.tsx
+--- a/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.tsx
++++ b/lib/orca/src/renderer/src/components/settings/OpenInMenuSetting.tsx
 @@ -1,9 +1,13 @@
  import type React from 'react'
  import { useState } from 'react'
@@ -469,10 +469,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/settings/OpenInMenuSetti
              return (
                <OpenInMenuRow
                  key={application.id}
-Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.test.tsx
+Index: b/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.test.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.test.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.test.tsx
+--- a/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.test.tsx
++++ b/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.test.tsx
 @@ -6,6 +6,7 @@ import {
    getOpenInEntryAvailability,
    getLocalFileManagerLabel,
@@ -617,10 +617,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
 +    })
 +  })
 +})
-Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.tsx
+Index: b/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.tsx
+--- a/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.tsx
++++ b/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMenu.tsx
 @@ -1,5 +1,5 @@
  import React, { useCallback } from 'react'
 -import { ExternalLink, FolderOpen } from 'lucide-react'
@@ -817,10 +817,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/sidebar/WorktreeOpenInMe
              <span className="min-w-0 truncate">
                {labelPrefix}
                {entry.label}
-Index: orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability.test.ts
+Index: b/lib/orca/src/renderer/src/lib/external-editor-open-capability.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/external-editor-open-capability.test.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability.test.ts
+--- a/lib/orca/src/renderer/src/lib/external-editor-open-capability.test.ts
++++ b/lib/orca/src/renderer/src/lib/external-editor-open-capability.test.ts
 @@ -43,4 +43,46 @@ describe('getExternalEditorOpenCapabilit
        )
      ).toEqual({ allowed: false, reason: 'remote-runtime' })
@@ -868,10 +868,10 @@ Index: orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability
 +    ).toEqual({ allowed: true, remote: false })
 +  })
  })
-Index: orca-server/lib/orca/src/renderer/src/lib/open-in-app-catalog.tsx
+Index: b/lib/orca/src/renderer/src/lib/open-in-app-catalog.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/open-in-app-catalog.tsx
-+++ orca-server/lib/orca/src/renderer/src/lib/open-in-app-catalog.tsx
+--- a/lib/orca/src/renderer/src/lib/open-in-app-catalog.tsx
++++ b/lib/orca/src/renderer/src/lib/open-in-app-catalog.tsx
 @@ -36,13 +36,52 @@ export const getOpenInAppPresets = creat
    }
  ])
@@ -950,10 +950,10 @@ Index: orca-server/lib/orca/src/renderer/src/lib/open-in-app-catalog.tsx
          style={{ borderRadius: 2 }}
        />
      )
-Index: orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
+Index: b/lib/orca/src/renderer/src/store/slices/settings.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/store/slices/settings.ts
-+++ orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
+--- a/lib/orca/src/renderer/src/store/slices/settings.ts
++++ b/lib/orca/src/renderer/src/store/slices/settings.ts
 @@ -12,7 +12,10 @@ import type { RuntimeStatus } from '../.
  import { normalizeTerminalQuickCommands } from '../../../../shared/terminal-quick-commands'
  import { normalizeTerminalCustomThemes } from '../../../../shared/terminal-custom-themes'
@@ -980,10 +980,10 @@ Index: orca-server/lib/orca/src/renderer/src/store/slices/settings.ts
  function normalizeSettingsUpdates(
    updates: Partial<GlobalSettings>,
    currentSettings: GlobalSettings | null
-Index: orca-server/lib/orca/src/shared/open-in-applications.test.ts
+Index: b/lib/orca/src/shared/open-in-applications.test.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/shared/open-in-applications.test.ts
-+++ orca-server/lib/orca/src/shared/open-in-applications.test.ts
+--- a/lib/orca/src/shared/open-in-applications.test.ts
++++ b/lib/orca/src/shared/open-in-applications.test.ts
 @@ -45,6 +45,44 @@ describe('normalizeOpenInApplications',
      ])
    })
@@ -1029,10 +1029,10 @@ Index: orca-server/lib/orca/src/shared/open-in-applications.test.ts
    it('seeds defaults only when the persisted field is missing', () => {
      expect(normalizeOpenInApplications(undefined, { seedDefaults: true })).toEqual(
        DEFAULT_OPEN_IN_APPLICATIONS
-Index: orca-server/lib/orca/src/shared/open-in-applications.ts
+Index: b/lib/orca/src/shared/open-in-applications.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/shared/open-in-applications.ts
-+++ orca-server/lib/orca/src/shared/open-in-applications.ts
+--- a/lib/orca/src/shared/open-in-applications.ts
++++ b/lib/orca/src/shared/open-in-applications.ts
 @@ -18,6 +18,41 @@ function makeFallbackId(index: number):
    return `open-in-${index + 1}`
  }
@@ -1096,10 +1096,10 @@ Index: orca-server/lib/orca/src/shared/open-in-applications.ts
    }
  
    return normalized
-Index: orca-server/lib/orca/src/shared/ui-chrome-types.ts
+Index: b/lib/orca/src/shared/ui-chrome-types.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/shared/ui-chrome-types.ts
-+++ orca-server/lib/orca/src/shared/ui-chrome-types.ts
+--- a/lib/orca/src/shared/ui-chrome-types.ts
++++ b/lib/orca/src/shared/ui-chrome-types.ts
 @@ -7,6 +7,11 @@ export type OpenInApplication = {
    id: string
    label: string
@@ -1112,10 +1112,10 @@ Index: orca-server/lib/orca/src/shared/ui-chrome-types.ts
  }
  
  export type SourceControlViewMode = 'list' | 'tree'
-Index: orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-control/listing/entry-context-menu.tsx
+Index: b/lib/orca/src/renderer/src/components/right-sidebar/source-control/listing/entry-context-menu.tsx
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/components/right-sidebar/source-control/listing/entry-context-menu.tsx
-+++ orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-control/listing/entry-context-menu.tsx
+--- a/lib/orca/src/renderer/src/components/right-sidebar/source-control/listing/entry-context-menu.tsx
++++ b/lib/orca/src/renderer/src/components/right-sidebar/source-control/listing/entry-context-menu.tsx
 @@ -1,5 +1,5 @@
  import React, { useCallback } from 'react'
 -import { Copy, ExternalLink, Eye, FolderOpen } from 'lucide-react'
@@ -1180,10 +1180,10 @@ Index: orca-server/lib/orca/src/renderer/src/components/right-sidebar/source-con
                    <span className="min-w-0 truncate">{entry.label}</span>
                    {availability.metadata ? (
                      <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
-Index: orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
+Index: b/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
-+++ orca-server/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
+--- a/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
++++ b/lib/orca/src/renderer/src/lib/external-editor-open-capability.ts
 @@ -1,14 +1,32 @@
  import type { GlobalSettings } from '../../../shared/global-settings-types'
 +import { isOpenInUrlTemplateUsable } from '../../../shared/open-in-url-template'

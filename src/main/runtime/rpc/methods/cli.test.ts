@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn()
 }))
 
-vi.mock('../../../ipc/cli', () => ({
+vi.mock('../../../cli/cli-registration', () => ({
   getCliInstallStatusWithShellPathHydration: mocks.getStatus,
   installCliWithShellPathHydration: mocks.install,
   removeCliWithShellPathHydration: mocks.remove
@@ -76,5 +76,19 @@ describe('cli RPC methods', () => {
 
     expect(mocks.remove).toHaveBeenCalledTimes(1)
     expect(response).toMatchObject({ ok: true, result: removedStatus })
+  })
+
+  it('registers the three methods on the runtime', async () => {
+    // Why: the web preload routes cli.getInstallStatus/install/remove over RPC. A family
+    // missing from ALL_RPC_METHODS is refused by the dispatcher, so every setup card
+    // reverts to "Orca CLI registration is unavailable" with this handler still green.
+    const { ALL_RPC_METHODS } = await import('./index')
+    const registered = new Set(ALL_RPC_METHODS.map((method) => method.name))
+
+    expect(
+      ['cli.getInstallStatus', 'cli.install', 'cli.remove'].filter(
+        (method) => !registered.has(method)
+      )
+    ).toEqual([])
   })
 })

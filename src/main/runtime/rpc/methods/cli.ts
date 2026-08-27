@@ -3,7 +3,7 @@ import {
   getCliInstallStatusWithShellPathHydration,
   installCliWithShellPathHydration,
   removeCliWithShellPathHydration
-} from '../../../ipc/cli'
+} from '../../../cli/cli-registration'
 
 // Mirrors the `cli:` IPC handlers; WSL registration is Windows-desktop only and stays off.
 // install/remove mutate the host, so none of these may join MOBILE_RPC_METHOD_ALLOWLIST.

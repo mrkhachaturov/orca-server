@@ -28,3 +28,8 @@ The judgement rules — what a patch must prove before it ships — stay in `AGE
   they add. Never renumber — reordering is an edit to that file and nothing else. Never put a patch
   identifier in a code comment; name the rule instead, because the identifier moves and the rule
   does not.
+
+- **Never run `quilt` outside `mise`.** `.quiltrc` pins the diff prefix to `a/` `b/` and the rest of
+  the options the committed bytes carry; only `mise` exports `QUILTRC` to reach it. Without it quilt
+  falls back to `basename $PWD`, and the next `quilt refresh` rewrites every patch to the name of
+  the directory you happened to stand in.

@@ -78,18 +78,42 @@ describe('/trusted-session', () => {
     expect(response.statusCode).toBe(503)
   })
 
-  it('serves the credential from its own path and nowhere else', async () => {
+  it('is never reachable from under /assets/', async () => {
     // A credential must not be reachable from under /assets/, which a proxy or CDN may treat as
-    // public and cacheable. A deployment's URL prefix belongs in the operator's proxy template.
-    for (const url of [
+    // public and cacheable. The asset branch of the prefix mapper runs first for this reason.
+    const { response, body } = await handle(
       '/assets/foo/trusted-session',
-      '/workspace/orca/trusted-session',
-      '/a/b/c/trusted-session'
-    ]) {
+      '127.0.0.1',
+      () => PAIRING_URL
+    )
+
+    expect(response.statusCode).toBe(404)
+    expect(body()).toBeUndefined()
+  })
+
+  it('answers behind a path-forwarding reverse proxy', async () => {
+    // Why: the client probes `new URL('trusted-session', location.href)`, so a page served at
+    // /<prefix>/web-index.html asks for /<prefix>/trusted-session. Without this the tile loads
+    // and then falls back to the paste form, which is the symptom this patch exists to remove.
+    // Safe because loopback, not the path shape, is the gate — a non-loopback caller gets 404
+    // below at any path.
+    for (const url of ['/workspace/orca/trusted-session', '/a/b/c/trusted-session']) {
       const { response, body } = await handle(url, '127.0.0.1', () => PAIRING_URL)
-      expect({ url, statusCode: response.statusCode }).toEqual({ url, statusCode: 404 })
-      expect(body()).toBeUndefined()
+      expect({ url, statusCode: response.statusCode }).toEqual({ url, statusCode: 200 })
+      expect(JSON.parse(body() ?? '{}')).toEqual({ pairingUrl: PAIRING_URL })
     }
+  })
+
+  it('refuses a forwarded path from a non-loopback caller', async () => {
+    // The prefix mapper must not become a way around the loopback gate.
+    const { response, body } = await handle(
+      '/workspace/orca/trusted-session',
+      '203.0.113.9',
+      () => PAIRING_URL
+    )
+
+    expect(response.statusCode).toBe(404)
+    expect(body()).toBeUndefined()
   })
 
   it('answers HEAD with the headers and no body', async () => {

@@ -5,59 +5,32 @@ the sidebar to begin" - even though the sidebar lists every worktree.
 
 Upstream's paired-client session read already restores this from
 `ui.lastActiveRepoId` and `ui.lastActiveWorktreeId`, but nothing anywhere writes
-those two fields: the producer was never implemented, on desktop or on web.
-`rememberWebActiveWorkspace` records the pointer from the web session adapter
-through the existing `ui.set` RPC, which persists into the host's own `ui`
-slice, so a browser with empty storage still restores;
-`getStoredWorkspaceSession` falls back to the browser's sanitized copy when the
-host pointer is absent. The pointer is built from the keys the caller actually
-sent - `session.patch` passes a raw `Partial`, and coercing an absent key to
-null would clear the other half, since the restore's fallback cannot fall
-through a stored null - so the unchanged half is carried forward. The browser
-copy is written before the active-environment check: an unpaired client should
-still reopen where it left off.
+those two fields: the producer was never implemented, on desktop or on web. It
+belongs in `usePersistedUIWriter`, the shared renderer writer that already
+mirrors store fields into the durable UI file, beside its `activeView` effect -
+a dedicated effect for a value that changes on every switch, deliberately kept
+off the 150 ms multi-MB durable-state save (#9002). Everything downstream of
+`window.api.ui.set` already exists end to end: the web adapter writes
+localStorage first and forwards over `ui.set`, and `lastActive*` is not a
+pairing-local field, so it crosses the pairing boundary both ways. Writing it in
+the shared renderer fills the gap on desktop and web at once.
+
+`getStoredWorkspaceSession` then falls back to the browser's own sanitized copy
+when the host pointer is absent, for a client paired before the pointer was ever
+recorded. That fallback also does the carry-forward work: `session.patch` merges
+onto `getStoredWorkspaceSession`, so with a null merge base a patch carrying only
+`activeWorktreeId` would erase the repo pointer beside it.
 
 To test, open a worktree in the tile, restart the workspace, and reload: that
 worktree should be active. Switch worktrees within a repo and reload again - the
-repo must not be lost. Repeat in a browser with cleared storage. Covered by
-`web-workspace-restore.test.ts` and
-`web-preload-api-active-workspace-pointer.test.ts`.
-Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
+repo must not be lost. Repeat in a browser with cleared storage. Red with this
+patch popped: `use-persisted-ui-writer-active-workspace.test.ts` - three of four -
+and `web-workspace-restore.test.ts` - two of four. Both files are load-bearing.
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
 ===================================================================
---- orca-server.orig/lib/orca/src/renderer/src/web/web-preload-api.ts
-+++ orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
-@@ -589,6 +589,7 @@ function createWebPreloadApi(): Partial<
-         // guarantees immediate browser-local durability for the final snapshot.
-         for (const { state, hostId } of sessions) {
-           writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(state))
-+          rememberWebActiveWorkspace(state, hostId)
-         }
-         writeJson(UI_STORAGE_KEY, mergeWebUIState(readLocalWebUIState(), ui))
-       },
-@@ -869,6 +870,7 @@ function createWebPreloadApi(): Partial<
-       get: (hostId) => Promise.resolve(getStoredWorkspaceSession(hostId)),
-       set: async (session, hostId) => {
-         writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(session))
-+        rememberWebActiveWorkspace(session, hostId)
-       },
-       patch: async (patch: WorkspaceSessionPatch, hostId) => {
-         writeJson(
-@@ -878,12 +880,14 @@ function createWebPreloadApi(): Partial<
-             ...patch
-           })
-         )
-+        rememberWebActiveWorkspace(patch, hostId)
-       },
-       // localStorage writes synchronously, so there is no deferred web flush.
-       flush: async () => {},
-       readTerminalScrollback: () => null,
-       setSync: (session, hostId) => {
-         writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(session))
-+        rememberWebActiveWorkspace(session, hostId)
-       }
-     },
-     onboarding: {
-@@ -4353,12 +4357,67 @@ function getStoredWorkspaceSession(hostI
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
+@@ -4340,8 +4340,9 @@ function getStoredWorkspaceSession(hostI
    // Why: replaying browser-local terminal handles first creates stale remote PTYs; mirror host session-tabs instead.
    return sanitizeWebRuntimeWorkspaceSession({
      ...getDefaultWorkspaceSession(),
@@ -69,61 +42,35 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
      lastVisitedAtByWorktreeId: localSession.lastVisitedAtByWorktreeId
    })
  }
- 
-+type WebActiveWorkspacePointer = Pick<
-+  PersistedUIState,
-+  'lastActiveRepoId' | 'lastActiveWorktreeId'
-+>
+Index: b/lib/orca/src/renderer/src/app-shell/use-persisted-ui-writer.ts
+===================================================================
+--- a/lib/orca/src/renderer/src/app-shell/use-persisted-ui-writer.ts
++++ b/lib/orca/src/renderer/src/app-shell/use-persisted-ui-writer.ts
+@@ -11,6 +11,8 @@ import { useAppStore } from '../store'
+ export function usePersistedUIWriter(): void {
+   const persistedUIReady = useAppStore((s) => s.persistedUIReady)
+   const activeView = useAppStore((s) => s.activeView)
++  const activeRepoId = useAppStore((s) => s.activeRepoId)
++  const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
+   const ui = useAppStore(
+     useShallow((s) => ({
+       sidebarWidth: s.sidebarWidth,
+@@ -67,4 +69,18 @@ export function usePersistedUIWriter():
+     }
+     void window.api.ui.set({ activeView })
+   }, [activeView, persistedUIReady])
 +
-+let rememberedActiveWorkspace: WebActiveWorkspacePointer | null = null
-+
-+/** Record the workspace getStoredWorkspaceSession restores from, in the host's ui slice.
-+ *
-+ *  Why: a paired browser keeps no session — sanitizeWebRuntimeWorkspaceSession drops it and the
-+ *  tabs come back over session.tabs — so the only thing that has to survive a restart is which
-+ *  workspace was open. Upstream already reads that back from ui.lastActive*, but nothing writes
-+ *  it, so a restarted tile lands on the Landing screen with every worktree in the sidebar. */
-+function rememberWebActiveWorkspace(
-+  session: Partial<WorkspaceSessionState>,
-+  hostId?: string | null
-+): void {
-+  // Why: these are global session fields — cloned onto every host slice, owned by 'local'.
-+  if ((normalizeExecutionHostId(hostId) ?? LOCAL_EXECUTION_HOST_ID) !== LOCAL_EXECUTION_HOST_ID) {
-+    return
-+  }
-+  if (!('activeRepoId' in session) && !('activeWorktreeId' in session)) {
-+    return
-+  }
-+  // Why: `session.patch` carries only the keys that changed, so coercing an absent key to null
-+  // would clear the other half of the pointer — switching worktree would erase the repo, and the
-+  // restore path reads `ui.lastActiveRepoId ?? localSession.activeRepoId`, so it would find that
-+  // null rather than fall through to the browser copy. Carry the unchanged half forward.
-+  const known = rememberedActiveWorkspace ?? readLocalWebUIState()
-+  const pointer: WebActiveWorkspacePointer = {
-+    lastActiveRepoId:
-+      'activeRepoId' in session ? (session.activeRepoId ?? null) : (known.lastActiveRepoId ?? null),
-+    lastActiveWorktreeId:
-+      'activeWorktreeId' in session
-+        ? (session.activeWorktreeId ?? null)
-+        : (known.lastActiveWorktreeId ?? null)
-+  }
-+  if (
-+    rememberedActiveWorkspace?.lastActiveRepoId === pointer.lastActiveRepoId &&
-+    rememberedActiveWorkspace.lastActiveWorktreeId === pointer.lastActiveWorktreeId
-+  ) {
-+    return
-+  }
-+  rememberedActiveWorkspace = pointer
-+  writeJson(UI_STORAGE_KEY, mergeWebUIState(readLocalWebUIState(), pointer))
-+  if (!requireActiveEnvironmentOrNull()) {
-+    return
-+  }
-+  void callRuntimeResult('ui.set', pointer, 15_000).catch(() => {
-+    // Why: an unreachable host must not break session persistence; drop the memo so the next write retries.
-+    rememberedActiveWorkspace = null
-+  })
-+}
-+
- function closeWebOnboarding(base: OnboardingState): OnboardingState {
-   return {
-     ...base,
++  // Why: `lastActive*` is read back on startup to reopen the workspace that was open,
++  // and nothing ever wrote it — so a restart landed on the Landing screen with every
++  // worktree listed in the sidebar. Same shape as activeView above: the active workspace
++  // changes at the same rate, so it must not ride the debounced durable-state save.
++  useEffect(() => {
++    if (!persistedUIReady) {
++      return
++    }
++    void window.api.ui.set({
++      lastActiveRepoId: activeRepoId,
++      lastActiveWorktreeId: activeWorktreeId
++    })
++  }, [activeRepoId, activeWorktreeId, persistedUIReady])
+ }

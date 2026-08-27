@@ -1,0 +1,13 @@
+# quilt's own config, reached through QUILTRC in mise.toml. In-repo because the
+# bytes it writes are committed: quilt otherwise derives the diff prefix from
+# basename $PWD and the rest from the host's /etc/quilt.quiltrc.
+QUILT_DIFF_OPTS="--show-c-function"
+
+QUILT_PUSH_ARGS="--color=auto"
+QUILT_DIFF_ARGS="--no-timestamps --color=auto -p ab"
+QUILT_REFRESH_ARGS="--no-timestamps --backup -p ab"
+QUILT_SERIES_ARGS="--color=auto"
+QUILT_PATCHES_ARGS="--color=auto"
+
+# `quilt top` must answer patches/<name>.diff — series.bats reads the path.
+QUILT_PATCHES_PREFIX=yes

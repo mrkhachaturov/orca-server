@@ -1,8 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { RpcDispatcher } from '../dispatcher'
 import type { RpcRequest } from '../core'
-import type { OrcaRuntimeService } from '../../orca-runtime'
-import type { RuntimeUsageProvider } from '../../../../shared/runtime-usage-providers'
+import { OrcaRuntimeService } from '../../orca-runtime'
+import {
+  setUsageProviderStores,
+  type RuntimeUsageProvider,
+  type RuntimeUsageStore
+} from '../../../usage/usage-store-registry'
 import type {
   ClaudeUsageBreakdownRow,
   ClaudeUsageDailyPoint,
@@ -32,21 +36,19 @@ function createUsageStoreStub() {
 
 type UsageStoreStub = ReturnType<typeof createUsageStoreStub>
 
-// Refuses an unresolvable provider the way OrcaRuntimeService.getUsageStore does — answering
-// `undefined` is the exact failure this surface exists to remove.
-function createRuntime(
-  stores: Partial<Record<RuntimeUsageProvider, UsageStoreStub>>
-): OrcaRuntimeService {
-  return {
-    getRuntimeId: () => 'test-runtime',
-    getUsageStore: (provider: RuntimeUsageProvider) => {
-      const store = stores[provider]
-      if (!store) {
-        throw new Error(`usage_provider_unavailable:${provider}`)
-      }
-      return store
-    }
-  } as unknown as OrcaRuntimeService
+/**
+ * The registry is typed against the three concrete store classes, which carry private
+ * members no stub can have. One cast here, at the seam, so the eight handlers and the
+ * dispatcher are exercised for real — including the registry's own throw.
+ */
+function register(stores: Partial<Record<RuntimeUsageProvider, UsageStoreStub>>): void {
+  const asStore = (stub?: UsageStoreStub): RuntimeUsageStore | null =>
+    (stub as unknown as RuntimeUsageStore) ?? null
+  setUsageProviderStores({
+    claude: asStore(stores.claude),
+    codex: asStore(stores.codex),
+    openCode: asStore(stores.openCode)
+  })
 }
 
 // Fixtures are what the desktop stores hand their IPC handlers.
@@ -156,7 +158,11 @@ describe('usage RPC methods', () => {
       codex: createUsageStoreStub(),
       openCode: createUsageStoreStub()
     }
-    dispatcher = new RpcDispatcher({ runtime: createRuntime(stores), methods: USAGE_METHODS })
+    register(stores)
+    dispatcher = new RpcDispatcher({
+      runtime: new OrcaRuntimeService(null),
+      methods: USAGE_METHODS
+    })
   })
 
   it('answers the pane with the host scan state', async () => {
@@ -333,16 +339,34 @@ describe('usage RPC methods', () => {
   it('fails loudly when a provider store is unavailable', async () => {
     // The preload fallback's silent `undefined` is what made the pane look broken rather than
     // unavailable.
-    const withoutCodex = new RpcDispatcher({
-      runtime: createRuntime({ claude: stores.claude, openCode: stores.openCode }),
-      methods: USAGE_METHODS
-    })
+    register({ claude: stores.claude, openCode: stores.openCode })
 
-    const response = await withoutCodex.dispatch(
+    const response = await dispatcher.dispatch(
       makeRequest('usage.getScanState', { provider: 'codex' })
     )
 
     expect(response).toMatchObject({ ok: false })
     expect(response).not.toHaveProperty('result')
+  })
+
+  it('registers all eight methods on the runtime', async () => {
+    // Why: the three preload namespaces route every member over RPC. A family missing
+    // from ALL_RPC_METHODS is refused by the dispatcher, so Stats & Usage falls back to
+    // "Not scanned yet" with this handler and the store registry still green.
+    const { ALL_RPC_METHODS } = await import('./index')
+    const registered = new Set(ALL_RPC_METHODS.map((method) => method.name))
+
+    expect(
+      [
+        'usage.getScanState',
+        'usage.setEnabled',
+        'usage.refresh',
+        'usage.getSnapshot',
+        'usage.getSummary',
+        'usage.getDaily',
+        'usage.getBreakdown',
+        'usage.getRecentSessions'
+      ].filter((method) => !registered.has(method))
+    ).toEqual([])
   })
 })

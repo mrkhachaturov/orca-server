@@ -73,8 +73,8 @@ Enumerate both owners — scanning `patches/*.diff` or `quilt files` alone under
 our 91 files are overlay-only:
 
 ```bash
-{ grep -h '^+++ orca-server/lib/orca/' patches/*.diff \
-    | sed 's|^+++ orca-server/lib/orca/||;s/[[:space:]].*$//'
+{ grep -h '^+++ b/lib/orca/' patches/*.diff \
+    | sed 's|^+++ b/lib/orca/||;s/[[:space:]].*$//'
   find src -type f
 } | sort -u
 ```
