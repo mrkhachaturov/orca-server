@@ -6,6 +6,7 @@
 set -Eeuo pipefail
 
 PATHS=(
+  .cache
   mise.local.toml
   mise.local.lock
   .mcp.json
@@ -13,6 +14,9 @@ PATHS=(
   AGENTS.override.md
   .codex/config.toml
   .codex/hooks.json
+  .agents/skills/orca-wiki
+  .claude/commands
+  .claude/skills/orca-wiki
   .claude/settings.local.json
   .claude/findings.md
 )
