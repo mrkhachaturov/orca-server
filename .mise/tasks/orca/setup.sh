@@ -40,5 +40,10 @@ for rel in "${PATHS[@]}"; do
   echo "linked $rel"
 done
 
-git -C "$worktree" submodule update --init --recursive
+reference=()
+if [ -d "$root/.git/modules/lib/orca" ]; then
+  reference=(--reference "$root/.git/modules/lib/orca")
+fi
+
+git -C "$worktree" submodule update --init ${reference[@]+"${reference[@]}"} lib/orca
 mise -C "$worktree" run up
