@@ -127,7 +127,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -330,6 +330,12 @@ import type {
+@@ -331,6 +331,12 @@ import type {
  } from '../../shared/terminal-tab-types'
  import type { TuiAgent } from '../../shared/tui-agent'
  import type { BranchPrefixStrategy } from '../../shared/ui-chrome-types'
@@ -140,7 +140,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
  import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../shared/workspace-source'
  import type {
-@@ -20841,6 +20847,32 @@ export class OrcaRuntimeService {
+@@ -20905,6 +20911,32 @@ export class OrcaRuntimeService {
      return scanNestedRepos({ path, options: { timeoutMs: 15_000 } })
    }
  

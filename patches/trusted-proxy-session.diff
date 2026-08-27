@@ -85,7 +85,7 @@ Index: orca-server/lib/orca/src/main/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/index.ts
 +++ orca-server/lib/orca/src/main/index.ts
-@@ -1893,6 +1893,8 @@ type ServeOptions = {
+@@ -1953,6 +1953,8 @@ type ServeOptions = {
    mobilePairing: boolean
    recipeJson: boolean
    projectRoot: string | null
@@ -94,7 +94,7 @@ Index: orca-server/lib/orca/src/main/index.ts
  }
  
  function getServeOptions(argv = process.argv): ServeOptions {
-@@ -1920,7 +1922,8 @@ function getServeOptions(argv = process.
+@@ -1980,7 +1982,8 @@ function getServeOptions(argv = process.
      noPairing: argv.includes('--serve-no-pairing'),
      mobilePairing: argv.includes('--serve-mobile-pairing'),
      recipeJson: argv.includes('--serve-recipe-json'),
@@ -104,7 +104,7 @@ Index: orca-server/lib/orca/src/main/index.ts
    }
  }
  
-@@ -3098,7 +3101,10 @@ void app.whenReady().then(async () => {
+@@ -3164,7 +3167,10 @@ void app.whenReady().then(async () => {
            preferPinnedWsPort: true
          }
        : {}),
@@ -486,7 +486,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import { copyClipboardTextViaExecCommand } from './web-clipboard-copy-fallback'
  import { WebRuntimeClient } from './web-runtime-client'
  import { isWebRuntimeUnauthorizedError } from './web-runtime-client-error'
-@@ -3714,13 +3718,49 @@ async function getRemoteRuntimeStatus():
+@@ -3715,13 +3719,49 @@ async function getRemoteRuntimeStatus():
    return callRuntimeResult<RuntimeStatus>('status.get', undefined, 15_000)
  }
  

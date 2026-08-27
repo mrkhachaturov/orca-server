@@ -129,7 +129,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
  import type { Repo } from '../../../shared/repo-types'
  import type {
    WorkspaceSessionPatch,
-@@ -3100,7 +3101,9 @@ function createPreflightApi(): NonNullab
+@@ -3101,7 +3102,9 @@ function createPreflightApi(): NonNullab
  }
  
  function createCliApi(): NonNullable<Partial<PreloadApi>['cli']> {
@@ -140,7 +140,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
      platform: getBrowserPlatform(),
      commandName: getBrowserPlatform() === 'linux' ? 'orca-ide' : 'orca',
      commandPath: null,
-@@ -3112,15 +3115,40 @@ function createCliApi(): NonNullable<Par
+@@ -3113,15 +3116,40 @@ function createCliApi(): NonNullable<Par
      state: 'unsupported',
      currentTarget: null,
      unsupportedReason: 'launch_mode_unavailable',

@@ -23,7 +23,7 @@ Index: orca-server/lib/orca/src/main/index.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/index.ts
 +++ orca-server/lib/orca/src/main/index.ts
-@@ -2667,6 +2667,12 @@ void app.whenReady().then(async () => {
+@@ -2733,6 +2733,12 @@ void app.whenReady().then(async () => {
        }),
      buildAgentHookPtyEnv: () =>
        isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {},
@@ -87,7 +87,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
 ===================================================================
 --- orca-server.orig/lib/orca/src/main/runtime/orca-runtime.ts
 +++ orca-server/lib/orca/src/main/runtime/orca-runtime.ts
-@@ -404,6 +404,7 @@ import {
+@@ -405,6 +405,7 @@ import {
  import type { SshConnectionState } from '../../shared/ssh-types'
  import { getPublicSshState } from './public-ssh-state'
  import { closeTerminalTabInWorkspaceSession } from '../../shared/workspace-session-terminal-tab-close'
@@ -95,9 +95,9 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  import {
    describeTerminalExitCause,
    isDeliberateTerminalExit,
-@@ -3026,6 +3027,38 @@ export type RuntimeRendererReloadFence =
-   recovery: 'renderer' | 'headless' | 'reloading'
- }>
+@@ -3037,6 +3038,38 @@ type ProviderSnapshotReadOptions = {
+   visibleScreenOnly?: boolean
+ }
  
 +// Why: one list, so a fourth token-analytics provider is a registry entry in
 +// main/index.ts plus a name here — never another RPC method or preload stub.
@@ -134,7 +134,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
  export class OrcaRuntimeService {
    private readonly runtimeId = randomUUID()
    private readonly startedAt = Date.now()
-@@ -3753,6 +3786,14 @@ export class OrcaRuntimeService {
+@@ -3765,6 +3798,14 @@ export class OrcaRuntimeService {
        buildAgentHookPtyEnv?: () => Record<string, string>
        getDesktopWindowStatus?: () => RuntimeDesktopWindowStatus
        agentSessionClaimSigner?: AgentSessionClaimSigner
@@ -149,7 +149,7 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
        orchestrationEnvironmentTransport?: OrchestrationEnvironmentTransport
        skillTransactionRecovery?: Promise<unknown>
      }
-@@ -3804,6 +3845,7 @@ export class OrcaRuntimeService {
+@@ -3816,6 +3857,7 @@ export class OrcaRuntimeService {
      this.onTerminalAgentStatus = deps?.onTerminalAgentStatus ?? null
      this.buildAgentHookPtyEnv = deps?.buildAgentHookPtyEnv ?? null
      this.getDesktopWindowStatusFn = deps?.getDesktopWindowStatus ?? (() => 'openable')
@@ -157,8 +157,8 @@ Index: orca-server/lib/orca/src/main/runtime/orca-runtime.ts
      this.prepareAiVaultSessionResumeFn = deps?.prepareAiVaultSessionResume ?? null
      this.agentSessionClaimSigner =
        deps?.agentSessionClaimSigner ?? createEphemeralAgentSessionClaimSigner(this.runtimeId)
-@@ -5746,6 +5788,21 @@ export class OrcaRuntimeService {
-     return this.skillUploadSessions
+@@ -5774,6 +5816,21 @@ export class OrcaRuntimeService {
+     await sessions?.dispose()
    }
  
 +  private usageStoreResolver:
@@ -213,7 +213,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
      minimaxCredentials: createMiniMaxCredentialsApi(),
      grokAccounts: createGrokAccountsApi(),
      codexAccounts: createAccountsApi(),
-@@ -3353,6 +3356,52 @@ function createNotificationsApi(): NonNu
+@@ -3354,6 +3357,52 @@ function createNotificationsApi(): NonNu
    }
  }
  

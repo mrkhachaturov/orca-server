@@ -57,7 +57,7 @@ Index: orca-server/lib/orca/src/renderer/src/web/web-preload-api.ts
        }
      },
      onboarding: {
-@@ -4353,12 +4357,67 @@ function getStoredWorkspaceSession(hostI
+@@ -4354,12 +4358,67 @@ function getStoredWorkspaceSession(hostI
    // Why: replaying browser-local terminal handles first creates stale remote PTYs; mirror host session-tabs instead.
    return sanitizeWebRuntimeWorkspaceSession({
      ...getDefaultWorkspaceSession(),
