@@ -5,7 +5,7 @@ Extract the new AppImage over the old one and restart the service. State lives i
 Phones and browsers reconnect without pairing again.
 
 ```bash
-VERSION=4.190.0
+VERSION=4.190.1
 ARCH=$(uname -m)
 cd /opt/orca-server
 sudo curl -fL -O "https://github.com/mrkhachaturov/orca-server/releases/download/v$VERSION/orca-server-$VERSION-$ARCH.AppImage"
