@@ -1,0 +1,784 @@
+Publish artifacts and skills from the browser
+
+Settings > Artifacts and Settings > Share Skills both rendered a greyed toggle
+reading "Desktop only. Open Settings on the host device to change this setting."
+On orca-server the host is a headless box behind a proxy with no UI at all, so
+that instruction named a screen that does not exist, and the capability could not
+be granted from anywhere. The operator sits in the browser; the browser could
+only read.
+
+Upstream keeps `artifactSharingEnabled` and `agentSkillSharingEnabled` out of
+`SettingsUpdate` on purpose, so no `settings.update` caller can grant itself
+publishing - and `settings.update` IS on `MOBILE_RPC_METHOD_ALLOWLIST`. That
+property is worth keeping on our host too, so the grant travels on a new
+`settings.updateSharingCapabilities` instead, which is deliberately off the
+allowlist. The owner enables publishing on the server; a paired phone inherits
+that decision rather than making it.
+
+Publishing itself is phone-reachable now: `artifacts.*` and the skill publish
+rail join the allowlist. AGENTS.md keeps host-mutating and credential-minting
+methods off it, and neither applies - these share ONE document each and none
+admits a new client to the runtime, which is what `mobile.createPairingOffer` is
+kept off for. The skill INSTALL rail stays off: it writes skill folders, which
+can hold scripts, onto the host.
+
+`skills.share` refused every paired client with "Run the command from Orca on the
+machine that stores the skills." That encoded "your skills are elsewhere", which
+is true for a laptop paired to someone else's desktop and false here - a browser
+has no skill homes at all, so the only selectors any client can offer are the
+ones `skills.discover` just returned from this host. The control the threat model
+actually names is target resolution (TM-04 in
+`docs/reference/agent-skill-sharing-threat-model.md`), and that is the
+`native-host` check, which is unchanged.
+
+`window.api.orcaProfiles.authStatus` answered a hardcoded
+`{configured: false, state: 'unconfigured'}`, so the Artifacts page reported
+"Orca account sign-in is not configured on this machine yet" for a host where it
+is configured. It now asks the host over a new `orcaProfiles.authStatus`; the
+access and refresh tokens never leave the host process. Reading it needs
+`getCurrentOrcaProfileAuthStatus`, whose import chain reaches `electron` twice,
+so it arrives through a settable registry in the overlay - the shape
+`usage/usage-store-registry.ts` already uses - keeping
+`config/runtime-electron-baseline.txt` empty.
+
+Signing in still cannot be STARTED from the tile, and `connectCurrent` now says
+so instead of blaming the host. Upstream opens a loopback HTTP server on the
+host's own 127.0.0.1, hands it the authorization code, and calls
+`shell.openExternal`; login.onorca.dev accepts loopback redirect URIs only, a
+proxy-origin callback is rejected with a flat 400 and there is no device-code
+grant. The host has no `xdg-open` and no `gio`, so `shell.openExternal` fails -
+but Orca ships and runs its own browser on the host, `agent-browser-linux-x64`,
+and a page in it reaches that same loopback - driven end to end, not inferred. The route, and the one risk that
+stopped it being built here, are in
+`docs/audit/v1.4.190/N3-orca-account-sign-in.md`. When a host session does exist
+it is memory-only, because `safeStorage.isEncryptionAvailable()` is false with no
+keyring and a packaged build refuses the plaintext fallback.
+
+Five `window.api.skills` members that had a matching RPC now use it - preview,
+remove, cancel and list installs. The publish and cloud-management members exist
+only as `skills:*` ipcMain channels upstream and keep their current behaviour
+rather than becoming new rejections; the tile's publish path is the toggle here
+plus `skills.share`, which agents and the `orca` CLI on the host call.
+
+Note for anyone editing `MOBILE_RPC_METHOD_ALLOWLIST`: no apostrophe may appear
+inside that Set literal, comments included. `mobile-rpc-allowlist.test.ts`
+extracts entries by scanning for single-quoted strings, so one stray quote
+re-pairs every entry after it and drops them from the parsed set silently. A
+contraction in a comment cost a green run here.
+
+To test, open Settings > Artifacts in the tile with the host signed out: the
+publish toggle should be usable, and turning it on should survive a reload and a
+serve restart. Same in Settings > Share Skills, after which `orca skills share`
+on the host stops answering `agent_skill_sharing_disabled`. Covered by
+`sharing-surfaces.test.ts` for the two new methods and the strict grant schema,
+`web-share-mobile-scope.test.ts` for what a paired phone may and may not reach,
+`skills-paired-client-share.test.ts` for the lifted refusal and the checks that
+stay, `web-share-surfaces.test.ts` for the preload routing, and
+`share-surface-panes-web.test.tsx` for the two panes. All five are overlay files,
+so popping this patch fails them rather than deleting them.
+Index: b/lib/orca/src/main/index.ts
+===================================================================
+--- a/lib/orca/src/main/index.ts
++++ b/lib/orca/src/main/index.ts
+@@ -39,6 +39,8 @@ import { initSessionParseCachePersistenc
+ import { ensureActiveOrcaProfile, initOrcaProfilePaths } from './orca-profiles/profile-index-store'
+ import { getOrcaCloudAuthConfig } from './orca-profiles/profile-cloud-auth-config'
+ import { getProfileUserDataPath } from './orca-profiles/profile-storage-paths'
++import { getCurrentOrcaProfileAuthStatus } from './orca-profiles/profile-cloud-service'
++import { setOrcaProfileAuthStatusProvider } from './orca-profiles/orca-profile-auth-registry'
+ import { applyAppIcon } from './app-icon'
+ import { relaunchApp } from './app-relaunch'
+ import { StatsCollector, initStatsPath } from './stats/collector'
+@@ -2847,6 +2849,12 @@ void app.whenReady().then(async () => {
+     )
+   )
+   runtimeService.setSkillCloudService(new SkillCloudService(app.getPath('userData')))
++  // Beside setArtifactService because it answers for the same account: without it the tile
++  // reports "sign-in is not configured on this machine" for a host where it is configured.
++  // Reads only — the session itself never leaves this process.
++  setOrcaProfileAuthStatusProvider(() =>
++    getCurrentOrcaProfileAuthStatus(getProfileUserDataPath())
++  )
+   runtimeService.setAccountServices({ claudeAccounts, codexAccounts, rateLimits })
+   runtimeService.setCommitMessageAgentEnvironmentResolvers({
+     // Why: Codex hooks/auth live in Orca's managed runtime home even for the default path, so every launch must resolve CODEX_HOME via runtime-home.
+Index: b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+===================================================================
+--- a/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
++++ b/lib/orca/src/main/runtime/mobile-rpc-allowlist.test.ts
+@@ -23,6 +23,34 @@ const PLUGIN_RPC_METHODS = [
+   'plugins.invokeCommand'
+ ]
+ 
++// The publish rail: artifacts end to end, plus the skill share call and the discovery read it
++// selects from.
++const PUBLISH_RAIL_RPC_METHODS = [
++  'artifacts.list',
++  'artifacts.getPublishedLink',
++  'artifacts.share',
++  'artifacts.publish',
++  'artifacts.update',
++  'artifacts.unshare',
++  'artifacts.delete',
++  'skills.discover',
++  'skills.share'
++]
++
++const SKILL_INSTALL_RAIL_RPC_METHODS = [
++  'skills.install',
++  'skills.installBundle',
++  'skills.removeInstall',
++  'skills.previewInstall',
++  'skills.cancelInstall',
++  'skills.getInstallProgress',
++  'skills.listManagedInstalls',
++  'skills.beginUpload',
++  'skills.uploadChunk',
++  'skills.commitUpload',
++  'skills.cancelUpload'
++]
++
+ const MOBILE_DYNAMIC_RPC_METHODS = [
+   // Why: computed sendRequest method names do not appear as literals in the
+   // mobile source scan below, but still must stay mobile-authorized.
+@@ -263,6 +291,24 @@ describe('mobile RPC allowlist', () => {
+     expect(PLUGIN_RPC_METHODS.filter((method) => allowed.has(method))).toEqual([])
+   })
+ 
++  it('grants mobile credentials the publish rail but never the toggle that enables it', () => {
++    // Why publishing is allowed: a paired phone is a remote control for this server. Each of these
++    // shares ONE document; none admits a new client to the runtime. Why the toggle is not: enabling
++    // publishing is the server owner's decision, and `settings.update` — which a phone DOES reach —
++    // is exactly why upstream keeps the two capability keys off `SettingsUpdate`.
++    const allowed = mobileRpcAllowlist()
++    expect(PUBLISH_RAIL_RPC_METHODS.filter((method) => !allowed.has(method))).toEqual([])
++    expect(allowed.has('settings.updateSharingCapabilities')).toBe(false)
++  })
++
++  it('does not grant mobile credentials the skill install rail', () => {
++    // Why: these write skill folders — which can contain scripts and executables — onto the host,
++    // and removeInstall deletes them. Host mutation, so runtime scope only. Publishing a bundle is
++    // not in this category: it uploads bytes the caller already chose and mints a link to them.
++    const allowed = mobileRpcAllowlist()
++    expect(SKILL_INSTALL_RAIL_RPC_METHODS.filter((method) => allowed.has(method))).toEqual([])
++  })
++
+   it('registers the plugin methods the web preload routes', () => {
+     // Why: the tile's Plugins pane has no ipcMain to fall back to. Dropping one from
+     // ALL_RPC_METHODS returns that pane to the empty list this bridge exists to fix.
+Index: b/lib/orca/src/main/runtime/orca-runtime.ts
+===================================================================
+--- a/lib/orca/src/main/runtime/orca-runtime.ts
++++ b/lib/orca/src/main/runtime/orca-runtime.ts
+@@ -3999,6 +3999,14 @@ export class OrcaRuntimeService {
+   async updateClientSettings(
+     updates: Pick<
+       Partial<GlobalSettings>,
++      // Why these two are accepted here but absent from `SettingsUpdate`: upstream keeps them off
++      // that schema so no `settings.update` caller can grant itself publishing, and `settings.update`
++      // is mobile-allowlisted. orca-server still needs the capability to be grantable — its host is
++      // headless, so "open Settings on the host device" points at nothing — so the grant arrives
++      // through `settings.updateSharingCapabilities`, which is runtime-scope only. The narrower
++      // schema is the gate; this Pick is only what the store write needs to type-check.
++      | 'artifactSharingEnabled'
++      | 'agentSkillSharingEnabled'
+       | 'worktreeVisibilityDefaults'
+       | 'agentStatusHooksEnabled'
+       | 'defaultTuiAgent'
+Index: b/lib/orca/src/main/runtime/rpc/methods/index.ts
+===================================================================
+--- a/lib/orca/src/main/runtime/rpc/methods/index.ts
++++ b/lib/orca/src/main/runtime/rpc/methods/index.ts
+@@ -42,6 +42,7 @@ import { UPDATER_METHODS } from './updat
+ import { CLI_METHODS } from './cli'
+ import { FLOATING_WORKSPACE_METHODS } from './floating-workspace'
+ import { USAGE_METHODS } from './usage'
++import { SHARING_SURFACE_METHODS } from './sharing-surfaces'
+ import { AGENT_SESSION_METHODS } from './agent-session'
+ import { ARTIFACT_METHODS } from './artifacts'
+ 
+@@ -93,5 +94,6 @@ export const ALL_RPC_METHODS: readonly R
+   ...UPDATER_METHODS,
+   ...CLI_METHODS,
+   ...FLOATING_WORKSPACE_METHODS,
+-  ...USAGE_METHODS
++  ...USAGE_METHODS,
++  ...SHARING_SURFACE_METHODS
+ ]
+Index: b/lib/orca/src/main/runtime/rpc/methods/skills.ts
+===================================================================
+--- a/lib/orca/src/main/runtime/rpc/methods/skills.ts
++++ b/lib/orca/src/main/runtime/rpc/methods/skills.ts
+@@ -58,14 +58,18 @@ export const SKILL_METHODS: RpcMethod[]
+   defineMethod({
+     name: 'skills.share',
+     params: AgentSkillShareRequestSchema,
+-    handler: async (params, { runtime, signal, clientKind }) => {
++    handler: async (params, { runtime, signal }) => {
+       runtime.assertAgentSkillSharingAllowed()
+-      if (clientKind !== undefined) {
+-        throw new AgentSkillSharingError(
+-          AGENT_SKILL_SHARING_UNSUPPORTED_ENVIRONMENT_CODE,
+-          'Publishing skills through a paired client is not supported. Run the command from Orca on the machine that stores the skills.'
+-        )
+-      }
++      // Why the paired-client refusal is gone: it encoded "your skills are on the machine you are
++      // sitting at, not this one", which is true for a laptop paired to someone else's desktop and
++      // false for orca-server. Here the host IS the machine that stores the skills — a browser has
++      // no skill homes at all (`web-preload-api.ts` answers an empty freshness inventory for that
++      // reason), so the only skills any client can select are the ones `skills.discover` just
++      // returned from this host. The control the threat model actually names is target resolution
++      // (TM-04, "destination paths are resolved by the runtime that owns the host"), and that is
++      // the `native-host` check below, which is unchanged and still refuses a forwarded WSL session.
++      // The device-wide gate above is unchanged too: publishing stays off until the server's owner
++      // turns it on.
+       const resolvedTarget = resolveDiscoveryTarget(params.target ?? {}, runtime)
+       if (resolvedTarget.kind !== 'native-host') {
+         throw new AgentSkillSharingError(
+Index: b/lib/orca/src/main/runtime/runtime-rpc.ts
+===================================================================
+--- a/lib/orca/src/main/runtime/runtime-rpc.ts
++++ b/lib/orca/src/main/runtime/runtime-rpc.ts
+@@ -399,6 +399,28 @@ const MOBILE_RPC_METHOD_ALLOWLIST = new
+   'settings.get',
+   'settings.getTerminalQuickCommands',
+   'settings.update',
++  // Why publishing is phone-reachable: a paired phone is a remote control for this server, not a
++  // lesser principal. The decision was already made at the server toggle - publishing stays refused
++  // for every caller until the owner enables it, and `settings.updateSharingCapabilities` (the
++  // toggle itself) is deliberately NOT here, so a phone inherits the grant and cannot make it.
++  // These share ONE document each; none admits a new client to the runtime, which is the
++  // escalation `mobile.createPairingOffer` is kept off this list for.
++  // NOTE: no apostrophe may appear inside this Set literal, comments included.
++  // `mobile-rpc-allowlist.test.ts` extracts the entries by scanning for single-quoted strings, so
++  // one stray quote re-pairs every entry after it and silently drops them from the parsed set.
++  'artifacts.list',
++  'artifacts.getPublishedLink',
++  'artifacts.share',
++  'artifacts.publish',
++  'artifacts.update',
++  'artifacts.unshare',
++  'artifacts.delete',
++  // The skill publish rail. `skills.discover` is its read half - a phone cannot choose selectors it
++  // cannot see. The install rail (`skills.install`, `installBundle`, `removeInstall`, and the
++  // upload session that stages bytes on disk) is absent on purpose: those write skill folders,
++  // which can contain scripts, onto the host.
++  'skills.discover',
++  'skills.share',
+   'settings.updateTerminalQuickCommands',
+   'ssh.connect',
+   'ssh.getState',
+Index: b/lib/orca/src/renderer/src/components/settings/ArtifactsSettingsPane.tsx
+===================================================================
+--- a/lib/orca/src/renderer/src/components/settings/ArtifactsSettingsPane.tsx
++++ b/lib/orca/src/renderer/src/components/settings/ArtifactsSettingsPane.tsx
+@@ -4,7 +4,6 @@ import type { GlobalSettings } from '../
+ import { Button } from '@/components/ui/button'
+ import { SettingsSwitchRow } from './SettingsFormControls'
+ import { useAppStore } from '@/store'
+-import { isWebClientLocation } from '@/lib/web-client-location'
+ import { translate } from '@/i18n/i18n'
+ 
+ type HowToStep = { key: string; title: string; description: string }
+@@ -22,9 +21,11 @@ export function ArtifactsSettingsPane({
+   const connect = useAppStore((state) => state.connectCurrentOrcaProfile)
+   const fetchAuthStatus = useAppStore((state) => state.fetchOrcaProfileAuthStatus)
+   const signedIn = authStatus?.state === 'connected'
+-  // Why: the capability lives in the desktop host's store and is deliberately absent from the
+-  // settings.update allowlist, so a web client can only mirror it — never grant it.
+-  const isWebClient = isWebClientLocation()
++  // Why there is no longer a web branch here: the capability lives in the host's store, and on
++  // orca-server that host is headless — "open Settings on the host device" pointed at nothing, so a
++  // read-only mirror left this pane's whole purpose unreachable. The grant travels on
++  // `settings.updateSharingCapabilities`, which is runtime-scope only, so a paired phone still
++  // inherits the decision rather than making it. Both clients now see one control and one wording.
+   const sharingEnabled = settings.artifactSharingEnabled === true
+ 
+   useEffect(() => {
+@@ -43,15 +44,10 @@ export function ArtifactsSettingsPane({
+               'auto.components.settings.artifacts.enableStepTitle',
+               'Enable artifact sharing'
+             ),
+-            description: isWebClient
+-              ? translate(
+-                  'auto.components.settings.artifacts.enableStepWebDescription',
+-                  'Open Settings → Artifacts in the Orca desktop app on the host device and enable publishing.'
+-                )
+-              : translate(
+-                  'auto.components.settings.artifacts.enableStepDescription',
+-                  'Turn on “Allow publishing public artifact links” above.'
+-                )
++            description: translate(
++              'auto.components.settings.artifacts.enableStepDescription',
++              'Turn on “Allow publishing public artifact links” above.'
++            )
+           }
+         ]),
+     {
+@@ -90,19 +86,11 @@ export function ArtifactsSettingsPane({
+           'auto.components.settings.artifacts.allowPublishing',
+           'Allow publishing public artifact links'
+         )}
+-        description={
+-          isWebClient
+-            ? translate(
+-                'auto.components.settings.artifacts.allowPublishingWebDescription',
+-                'Desktop only. Open Settings → Artifacts on the host device to change this setting.'
+-              )
+-            : translate(
+-                'auto.components.settings.artifacts.allowPublishingDescription',
+-                'Publish HTML and Markdown files as links anyone with the URL can open. Existing links remain until you delete them from Artifacts.'
+-              )
+-        }
++        description={translate(
++          'auto.components.settings.artifacts.allowPublishingDescription',
++          'Publish HTML and Markdown files as links anyone with the URL can open. Existing links remain until you delete them from Artifacts.'
++        )}
+         checked={sharingEnabled}
+-        disabled={isWebClient}
+         onChange={() => void updateSettings({ artifactSharingEnabled: !sharingEnabled })}
+       />
+       <SettingsSwitchRow
+Index: b/lib/orca/src/renderer/src/components/settings/ShareSkillsSettingsPane.tsx
+===================================================================
+--- a/lib/orca/src/renderer/src/components/settings/ShareSkillsSettingsPane.tsx
++++ b/lib/orca/src/renderer/src/components/settings/ShareSkillsSettingsPane.tsx
+@@ -82,24 +82,21 @@ export function ShareSkillsSettingsPane(
+         </p>
+       </section>
+ 
++      {/* Why no web branch: this toggle authorises the agents and the `orca` CLI that run ON the
++          host, and on orca-server that host is headless — pointing the operator at "Settings on the
++          host device" named a UI that does not exist, so the capability could never be granted at
++          all. The grant travels on `settings.updateSharingCapabilities`, which is runtime-scope
++          only, so a paired phone inherits the decision rather than making it. */}
+       <SettingsSwitchRow
+         label={translate(
+           'auto.components.settings.shareSkills.allowAgentPublishing',
+           'Allow agents and the Orca CLI to publish skill links'
+         )}
+-        description={
+-          isWebClient
+-            ? translate(
+-                'auto.components.settings.shareSkills.allowAgentPublishingWebDescription',
+-                'Desktop only. Open Settings → Share Skills on the host device to change this setting.'
+-              )
+-            : translate(
+-                'auto.components.settings.shareSkills.allowAgentPublishingDescription',
+-                'Let commands publish explicitly named installed skills. Skill folders can contain scripts, configuration, or secrets, so this is off by default.'
+-              )
+-        }
++        description={translate(
++          'auto.components.settings.shareSkills.allowAgentPublishingDescription',
++          'Let commands publish explicitly named installed skills. Skill folders can contain scripts, configuration, or secrets, so this is off by default.'
++        )}
+         checked={agentSharingEnabled}
+-        disabled={isWebClient}
+         onChange={() => void updateSettings({ agentSkillSharingEnabled: !agentSharingEnabled })}
+       />
+ 
+Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
+===================================================================
+--- a/lib/orca/src/renderer/src/web/web-preload-api.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api.ts
+@@ -57,6 +57,11 @@ import type { WorkspaceLineage, Worktree
+ import type { DetectedWorktreeListResult, Worktree } from '../../../shared/worktree/types'
+ import type { SkillDiscoveryResult } from '../../../shared/skills'
+ import type { SkillFreshnessInventory } from '../../../shared/skill-freshness'
++import type {
++  ManagedSkillInstallListOperation,
++  SkillInstallPreviewOperation,
++  SkillRemoveOperation
++} from '../../../shared/skill-sharing-contract'
+ import type { SshConnectionState, SshTarget } from '../../../shared/ssh-types'
+ import {
+   getDefaultOnboardingState,
+@@ -72,6 +77,7 @@ import {
+   createDefaultLocalOrcaProfile,
+   DEFAULT_LOCAL_ORCA_PROFILE_ID
+ } from '../../../shared/orca-profiles'
++import type { OrcaProfileAuthStatus } from '../../../shared/orca-profiles'
+ import { legacyBaseRefSearchResult } from '../../../shared/base-ref-search-result'
+ import { EMPTY_PTY_MAIN_DELIVERY_DIAGNOSTICS } from '../../../shared/pty-delivery-diagnostics'
+ import { createE2EConfig } from '../../../shared/e2e-config'
+@@ -559,14 +565,26 @@ async function writeWebClipboardText(tex
+ }
+ 
+ function createWebPreloadApi(): Partial<PreloadApi> {
+-  const webOrcaProfileAuthStatus = () =>
+-    Promise.resolve({
+-      activeProfileId: DEFAULT_LOCAL_ORCA_PROFILE_ID,
+-      configured: false,
+-      state: 'unconfigured' as const,
+-      persistence: 'none' as const,
+-      setupMessage: 'Orca Cloud sign-in is not available in the browser fallback.'
+-    })
++  // Why this is a real call and not a constant: the account lives on the host, and answering a
++  // fabricated `configured: false` made every account-backed surface claim the host had no sign-in
++  // configured — Artifacts renders "Orca account sign-in is not configured on this machine yet"
++  // even when the host is signed in and `artifacts.list` would answer. The status carries the
++  // account's display identity and capability flags only; the access and refresh tokens never
++  // leave the host process. The unpaired/offline fallback keeps the old constant, because with no
++  // runtime to ask, "not configured" is the honest answer rather than a guess.
++  const webOrcaProfileAuthStatus = async (): Promise<OrcaProfileAuthStatus> => {
++    try {
++      return await callRuntimeResult<OrcaProfileAuthStatus>('orcaProfiles.authStatus', {}, 15_000)
++    } catch {
++      return {
++        activeProfileId: DEFAULT_LOCAL_ORCA_PROFILE_ID,
++        configured: false,
++        state: 'unconfigured' as const,
++        persistence: 'none' as const,
++        setupMessage: 'Orca Cloud sign-in is not available in the browser fallback.'
++      }
++    }
++  }
+ 
+   return {
+     app: {
+@@ -701,9 +719,17 @@ function createWebPreloadApi(): Partial<
+           duplicateRepoId: args.repoId
+         }),
+       findProjectProfiles: async () => ({ projects: [] }),
++      // Why these still refuse, now that the status above is real: upstream signs in with a
++      // loopback PKCE flow — the host opens an http server on its own 127.0.0.1 and hands the
++      // authorization code to it. The browser is on a different machine, so that callback can
++      // never arrive, and login.onorca.dev accepts loopback redirect URIs only (any https origin
++      // is rejected outright), so no proxy-reachable callback route can be registered either.
++      // Saying so beats the old 'unconfigured', which blamed the host for a browser limitation.
+       connectCurrent: async () => ({
+-        status: 'unconfigured',
+-        auth: await webOrcaProfileAuthStatus()
++        status: 'failed',
++        auth: await webOrcaProfileAuthStatus(),
++        error:
++          'Signing in to Orca must be completed on the server host: the sign-in callback is delivered to the host loopback address, which a browser cannot reach.'
+       }),
+       refreshAuth: async () => ({
+         status: 'unconfigured',
+@@ -3306,6 +3332,13 @@ function createComputerUsePermissionsApi
+   }
+ }
+ 
++// Why not crypto.randomUUID: the id only has to be unique among this host's in-flight skill
++// operations, and the schema caps it at 128 chars. Prefixed so a host-side log says where it came
++// from when a removal is cancelled or replayed.
++function createSkillOperationId(): string {
++  return `web-skill-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
++}
++
+ function createSkillsApi(): NonNullable<Partial<PreloadApi>['skills']> {
+   return {
+     discover: (target) =>
+@@ -3325,6 +3358,14 @@ function createSkillsApi(): NonNullable<
+     cancelUpdateRun: () => Promise.resolve(),
+     acknowledgeUpdateRun: () => Promise.resolve(),
+     getUpdateRun: () => Promise.resolve({ state: 'idle' as const }),
++    // Why these five are routed and the rest are not: `SKILL_METHODS` covers the install
++    // *management* rail — preview, remove, cancel, list — with schemas the preload's own input
++    // types already satisfy. The publish and cloud-management members (prepareShare/publishShare/
++    // resolveShare/getPackage/listOwnedShares/revokeShare/delete*) and the share->package
++    // resolution that `installShare` needs exist only as `skills:*` ipcMain channels upstream, so
++    // they stay on their current behaviour rather than becoming rejections that read as new
++    // failures. The web tile's publish path is the device toggle in Settings > Share Skills plus
++    // `skills.share`, which agents and the `orca` CLI on the host call directly.
+     prepareShare: () => Promise.reject(new Error('Skill publishing requires the desktop app.')),
+     publishShare: () => Promise.reject(new Error('Skill publishing requires the desktop app.')),
+     cancelShare: () => Promise.resolve(),
+@@ -3337,13 +3378,42 @@ function createSkillsApi(): NonNullable<
+       Promise.reject(new Error('Skill installation requires the desktop app.')),
+     installBundlePackageVersion: () =>
+       Promise.reject(new Error('Skill installation requires the desktop app.')),
+-    cancelInstall: () => Promise.resolve({ cancelled: false }),
+-    previewInstall: () => Promise.reject(new Error('Skill installation requires the desktop app.')),
++    // The old `{cancelled: false}` claimed the host had been asked and had declined.
++    cancelInstall: (input) =>
++      callRuntimeResult<{ cancelled: boolean }>(
++        'skills.cancelInstall',
++        { operationId: input.operationId },
++        15_000
++      ),
++    // `environmentId` is dropped on purpose: the runtime being asked IS that environment, and the
++    // RPC schemas are strict, so forwarding it would fail the whole payload.
++    previewInstall: (input) =>
++      callRuntimeResult<SkillInstallPreviewOperation>(
++        'skills.previewInstall',
++        { package: input.package, name: input.name, destination: input.destination },
++        30_000
++      ),
+     previewBundleInstall: () =>
+       Promise.reject(new Error('Skill installation requires the desktop app.')),
+-    removeInstall: () => Promise.reject(new Error('Skill installation requires the desktop app.')),
++    removeInstall: (input) =>
++      callRuntimeResult<SkillRemoveOperation>(
++        'skills.removeInstall',
++        {
++          // The RPC requires an operation id for its progress/cancel bookkeeping; the desktop
++          // member's input has none, so the caller supplies one per removal.
++          operationId: createSkillOperationId(),
++          name: input.name,
++          destination: input.destination,
++          ...(input.conflictResolution ? { conflictResolution: input.conflictResolution } : {})
++        },
++        60_000
++      ),
+     listManagedInstalls: () =>
+-      Promise.reject(new Error('Skill installation requires the desktop app.')),
++      callRuntimeResult<ManagedSkillInstallListOperation>(
++        'skills.listManagedInstalls',
++        undefined,
++        15_000
++      ),
+     getPackage: () => Promise.reject(new Error('Skill installation requires the desktop app.')),
+     listOwnedShares: () =>
+       Promise.reject(new Error('Skill package management requires the desktop app.')),
+@@ -4259,8 +4329,35 @@ async function syncRuntimeBackedSettings
+       updates.prBotAuthorOverrides
+     )
+   }
++  // Why a separate call and not two more keys in `runtimeUpdates`: these two are the device's
++  // publish capability, and upstream keeps them off `SettingsUpdate` so no `settings.update` caller
++  // can grant itself publishing — `settings.update` is on MOBILE_RPC_METHOD_ALLOWLIST. They travel
++  // instead on `settings.updateSharingCapabilities`, which is runtime-scope only, so the tile can
++  // grant and a paired phone cannot. Sent before the rest so a rejected grant surfaces as itself
++  // rather than as a failed settings write.
++  const capabilityUpdates: Partial<GlobalSettings> = {}
++  if (typeof updates.artifactSharingEnabled === 'boolean') {
++    capabilityUpdates.artifactSharingEnabled = updates.artifactSharingEnabled
++  }
++  if (typeof updates.agentSkillSharingEnabled === 'boolean') {
++    capabilityUpdates.agentSkillSharingEnabled = updates.agentSkillSharingEnabled
++  }
++  let localNextWithCapabilities = localNext
++  if (Object.keys(capabilityUpdates).length > 0) {
++    const granted = await callRuntimeResult<{ settings: Partial<GlobalSettings> }>(
++      'settings.updateSharingCapabilities',
++      capabilityUpdates,
++      15_000
++    )
++    // The host is authoritative here, so mirror what it enforces rather than what was asked for.
++    localNextWithCapabilities = mergeSettings(localNext, {
++      artifactSharingEnabled: granted.settings.artifactSharingEnabled === true,
++      agentSkillSharingEnabled: granted.settings.agentSkillSharingEnabled === true
++    })
++    writeStoredSettings(localNextWithCapabilities)
++  }
+   if (Object.keys(runtimeUpdates).length === 0) {
+-    return localNext
++    return localNextWithCapabilities
+   }
+   try {
+     const result = await callRuntimeResult<{ settings: Partial<GlobalSettings> }>(
+@@ -4281,7 +4378,7 @@ async function syncRuntimeBackedSettings
+       worktreeVisibilityDefaultsRuntimeValue = updatedVisibilityDefaults
+     }
+     delete runtimeSettings.worktreeVisibilityDefaults
+-    const next = mergeSettings(localNext, runtimeSettings)
++    const next = mergeSettings(localNextWithCapabilities, runtimeSettings)
+     writeStoredSettings(next)
+     return next
+   } catch (error) {
+@@ -4289,7 +4386,7 @@ async function syncRuntimeBackedSettings
+       throw error
+     }
+     // Why: unpaired/offline web clients still need local settings persistence.
+-    return localNext
++    return localNextWithCapabilities
+   }
+ }
+ 
+Index: b/lib/orca/src/main/runtime/rpc/methods/skills.test.ts
+===================================================================
+--- a/lib/orca/src/main/runtime/rpc/methods/skills.test.ts
++++ b/lib/orca/src/main/runtime/rpc/methods/skills.test.ts
+@@ -305,17 +305,51 @@ describe('skills.share RPC', () => {
+     expect(discoverSkillsOnTarget).not.toHaveBeenCalled()
+   })
+ 
+-  it('rejects paired runtime callers before discovery', async () => {
++  it('serves paired callers, because here the host IS the machine that stores the skills', async () => {
++    // Was: "rejects paired runtime callers before discovery". That refusal encoded "your skills are
++    // on the machine you are sitting at, not this one" — true for a laptop paired to someone else's
++    // desktop, false for a server whose only client is a browser. A browser has no skill homes, so
++    // the only selectors any caller can offer are the ones this host just discovered. The controls
++    // that were doing the real work are unchanged and still covered above: the device gate, and the
++    // native-host target check (TM-04).
++    const discoveredSkills = [{ id: 'alpha' }]
++    vi.mocked(discoverSkillsOnTarget).mockResolvedValueOnce({
++      skills: discoveredSkills,
++      sources: [],
++      scannedAt: 1
++    } as never)
++    const publishDiscoveredSkillsFromAgent = vi.fn(async () => ({ status: 'ok' }))
+     const runtime = {
+-      assertAgentSkillSharingAllowed: vi.fn()
++      assertAgentSkillSharingAllowed: vi.fn(),
++      resolveProjectRuntimeForWorktree: vi.fn(),
++      resolveSkillDiscoveryProviderRoots: vi.fn(async () => ({})),
++      listRepos: vi.fn(() => []),
++      publishDiscoveredSkillsFromAgent
++    }
++
++    await method('skills.share').handler(request, {
++      runtime,
++      clientKind: 'runtime'
++    } as unknown as RpcContext)
++
++    expect(publishDiscoveredSkillsFromAgent).toHaveBeenCalled()
++  })
++
++  it('still refuses a paired caller when the device gate is off', async () => {
++    // The owner's decision still comes first, for every caller and every client kind.
++    const denial = new Error('agent_skill_sharing_disabled')
++    const runtime = {
++      assertAgentSkillSharingAllowed: vi.fn(() => {
++        throw denial
++      })
+     }
+ 
+     await expect(
+       method('skills.share').handler(request, {
+         runtime,
+-        clientKind: 'runtime'
++        clientKind: 'mobile'
+       } as unknown as RpcContext)
+-    ).rejects.toMatchObject({ code: 'agent_skill_sharing_unsupported_environment' })
++    ).rejects.toBe(denial)
+     expect(discoverSkillsOnTarget).not.toHaveBeenCalled()
+   })
+ })
+Index: b/lib/orca/src/renderer/src/components/settings/ArtifactsSettingsPane.test.tsx
+===================================================================
+--- a/lib/orca/src/renderer/src/components/settings/ArtifactsSettingsPane.test.tsx
++++ b/lib/orca/src/renderer/src/components/settings/ArtifactsSettingsPane.test.tsx
+@@ -175,7 +175,12 @@ describe('ArtifactsSettingsPane', () =>
+     expect(updateSettings).toHaveBeenLastCalledWith({ artifactSharingEnabled: false })
+   })
+ 
+-  it('makes the capability read-only on web, where the grant never reaches the host', async () => {
++  it('lets a web client grant the capability, and still mirrors the host value', async () => {
++    // Was: "makes the capability read-only on web, where the grant never reaches the host". The
++    // grant does reach the host now, on `settings.updateSharingCapabilities` — a method deliberately
++    // kept off MOBILE_RPC_METHOD_ALLOWLIST, so the server owner grants and a paired phone inherits.
++    // The old copy pointed the operator at "Settings on the host device", which on a headless server
++    // is no screen at all, so the capability could not be enabled from anywhere.
+     const user = userEvent.setup()
+     const updateSettings = vi.fn()
+     mocks.state.isWebClient = true
+@@ -187,12 +192,12 @@ describe('ArtifactsSettingsPane', () =>
+     )
+ 
+     const toggle = screen.getByRole('switch', { name: 'Allow publishing public artifact links' })
+-    // Mirrors the host value so web never claims a capability the host is not enforcing.
++    // Still mirrors the host value: web never claims a capability the host is not enforcing.
+     expect(toggle).toHaveAttribute('aria-checked', 'true')
+-    expect(toggle).toBeDisabled()
++    expect(toggle).toBeEnabled()
+     await user.click(toggle)
+-    expect(updateSettings).not.toHaveBeenCalled()
+-    expect(screen.getByText(/Desktop only/)).toBeInTheDocument()
++    expect(updateSettings).toHaveBeenCalledWith({ artifactSharingEnabled: false })
++    expect(screen.queryByText(/Desktop only/)).not.toBeInTheDocument()
+   })
+ 
+   it('leads with the opt-in step while publishing is off, and drops it once granted', () => {
+@@ -216,12 +221,15 @@ describe('ArtifactsSettingsPane', () =>
+     expect(screen.getByText('Choose a file to share')).toBeInTheDocument()
+   })
+ 
+-  it('points web clients at the desktop app for the opt-in step', () => {
++  it('gives web clients the same opt-in step as the desktop, not a redirect to a screen that does not exist', () => {
+     mocks.state.isWebClient = true
+     render(<ArtifactsSettingsPane settings={getDefaultSettings('/tmp')} updateSettings={vi.fn()} />)
+ 
+     expect(
+-      screen.getByText(/Open Settings → Artifacts in the Orca desktop app on the host device/)
++      screen.queryByText(/Open Settings → Artifacts in the Orca desktop app on the host device/)
++    ).not.toBeInTheDocument()
++    expect(
++      screen.getByText(/Turn on .Allow publishing public artifact links. above/)
+     ).toBeInTheDocument()
+   })
+ })
+Index: b/lib/orca/src/renderer/src/components/settings/ShareSkillsSettingsPane.test.tsx
+===================================================================
+--- a/lib/orca/src/renderer/src/components/settings/ShareSkillsSettingsPane.test.tsx
++++ b/lib/orca/src/renderer/src/components/settings/ShareSkillsSettingsPane.test.tsx
+@@ -119,7 +119,10 @@ describe('ShareSkillsSettingsPane', () =
+     expect(mocks.updateSettings).toHaveBeenCalledWith({ agentSkillSharingEnabled: true })
+   })
+ 
+-  it('does not offer desktop publishing from the web client', () => {
++  it('still keeps the Skills page and sign-in affordances off the web client', () => {
++    // The legitimate half of the old "does not offer desktop publishing from the web client": the
++    // Skills page members (prepareShare/publishShare/resolveShare/getPackage/...) exist only as
++    // `skills:*` ipcMain channels upstream, and sign-in cannot be started from a browser at all.
+     mocks.state.isWebClient = true
+     mocks.state.orcaProfileAuthStatus = { configured: true, state: 'local' }
+     render(
+@@ -131,10 +134,27 @@ describe('ShareSkillsSettingsPane', () =
+     expect(screen.getByText(/available in the Orca desktop app/)).toBeInTheDocument()
+     expect(screen.queryByRole('button', { name: /Open Skills/ })).not.toBeInTheDocument()
+     expect(screen.queryByRole('button', { name: 'Sign in to Orca' })).not.toBeInTheDocument()
+-    expect(
+-      screen.getByRole('switch', {
+-        name: 'Allow agents and the Orca CLI to publish skill links'
+-      })
+-    ).toBeDisabled()
++  })
++
++  it('lets a web client authorise agents and the CLI to publish', () => {
++    // The half that was asserting a defect. This toggle authorises the agents and the `orca` CLI
++    // running ON the host; pointing the operator at "Settings on the host device" named a screen a
++    // headless server does not have, so the capability could not be granted from anywhere.
++    mocks.state.isWebClient = true
++    mocks.state.orcaProfileAuthStatus = { configured: true, state: 'local' }
++    render(
++      <TooltipProvider>
++        <ShareSkillsSettingsPane />
++      </TooltipProvider>
++    )
++
++    const toggle = screen.getByRole('switch', {
++      name: 'Allow agents and the Orca CLI to publish skill links'
++    })
++    expect(toggle).toBeEnabled()
++    expect(screen.queryByText(/Desktop only/)).not.toBeInTheDocument()
++
++    toggle.click()
++    expect(mocks.updateSettings).toHaveBeenCalledWith({ agentSkillSharingEnabled: true })
+   })
+ })
+Index: b/lib/orca/src/renderer/src/web/web-preload-api-settings.test.ts
+===================================================================
+--- a/lib/orca/src/renderer/src/web/web-preload-api-settings.test.ts
++++ b/lib/orca/src/renderer/src/web/web-preload-api-settings.test.ts
+@@ -71,7 +71,7 @@ describe('web settings preload API', ()
+     expect(settings.terminalCursorStyleDefaultedToBlock).toBe(true)
+   })
+ 
+-  it('mirrors the host-owned agent skill sharing capability without granting it', async () => {
++  it('sends the sharing grant on its own method and still mirrors what the host enforced', async () => {
+     const runtimeCalls: { method: string; params: unknown }[] = []
+     vi.doMock('./web-runtime-client', () => ({
+       WebRuntimeClient: class {
+@@ -98,10 +98,19 @@ describe('web settings preload API', ()
+     await globals.window.api.settings.set({ agentSkillSharingEnabled: true })
+     const refreshed = await globals.window.api.settings.get()
+ 
++    // Was: "mirrors the host-owned agent skill sharing capability without granting it". The web
++    // client grants now — on orca-server the host is headless, so "change it on the host device"
++    // named no screen at all. Two of this case's three claims are unchanged and are the ones that
++    // matter: the grant must NOT ride `settings.update` (which a paired phone can reach), and the
++    // host stays authoritative — this mock answers `false` to the grant, and the tile shows false.
+     expect(settings.agentSkillSharingEnabled).toBe(false)
+     expect(refreshed.agentSkillSharingEnabled).toBe(false)
+     expect(runtimeCalls).toEqual([
+       { method: 'settings.get', params: undefined },
++      {
++        method: 'settings.updateSharingCapabilities',
++        params: { agentSkillSharingEnabled: true }
++      },
+       { method: 'settings.get', params: undefined }
+     ])
+     expect(runtimeCalls).not.toContainEqual(expect.objectContaining({ method: 'settings.update' }))

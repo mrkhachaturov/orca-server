@@ -31,6 +31,35 @@ Orca v9.99.999
 
 ## Unreleased
 
+Orca v1.4.190
+
+### Added
+
+- Settings in the browser now lists the sections it can reach: Orca Account,
+  Mobile, Plugins, SSH Hosts, Browser and Computer Use, and settings search finds
+  them. All ten desktop-only sections were hidden by one flag; Voice,
+  Notifications and Advanced stay hidden, with the reason recorded at each.
+  Mobile Emulator and macOS Permissions now follow the server's platform instead
+  of the browser's, so they appear when the server is a Mac.
+- Settings > Artifacts and Settings > Share Skills can be turned on from the
+  browser. Both toggles previously read "Desktop only. Open Settings on the host
+  device" — a screen a headless server does not have — so publishing could not be
+  enabled at all.
+- A paired phone can publish artifacts and share skill bundles once the server
+  owner has enabled publishing. Enabling it stays with the server.
+- Publishing a skill bundle works from the browser and from a phone, instead of
+  refusing with "Run the command from Orca on the machine that stores the
+  skills."
+
+### Fixed
+
+- The Artifacts page no longer claims "Orca account sign-in is not configured on
+  this machine" when the server is signed in; it reports the server's real
+  account status. Starting sign-in still has to be done on the server itself, and
+  the browser now says that rather than blaming the server.
+- Cancelling, previewing, removing and listing skill installs work from the
+  browser instead of failing with "requires the desktop app".
+
 ## [4.190.0] - 2026-08-27
 
 Orca v1.4.190

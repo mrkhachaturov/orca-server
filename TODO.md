@@ -36,6 +36,15 @@ a pending notification queue owned by `ipc/mobile.ts`; they are neither. The upd
 (`startUpdateRun`, `getUpdateRun`, `dismissAvailableUpdate`, `getLinuxPackageInstallInstructions`,
 `showLinuxPackage`, `listBuilds`, `restart`) is ours to build, not Orca's to run.
 
+## Decided, not built
+
+- **Orca account sign-in from the browser.** Designed and measured, one risk open; do not start it
+  by re-deriving the flow. `docs/audit/v1.4.190/N3-orca-account-sign-in.md` has the route (replace
+  the one `shell.openExternal` call with `browser.tabCreate`/`browser.goto` on Orca's own host
+  browser), the round trip already driven end to end, and the one risk left to settle: the backend
+  presents as Chrome/150 and "Sign in with Google" may be refused as an embedded browser. Any route
+  leaves the session memory-only on this host.
+
 ## Process
 
 `orca-patch-audit` re-justifies the patches we already carry — keep, shrink, merge, drop. Nothing in

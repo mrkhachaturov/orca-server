@@ -1,0 +1,501 @@
+List the settings a browser can actually reach
+
+Ten Settings sections were missing from the tile that the desktop shows: Orca
+Account, Mobile, Plugins, SSH Hosts, Browser, Computer Use, Voice, Notifications,
+Advanced and Mobile Emulator. Settings search could not find them either, so
+there was no route to any of them.
+
+One line decided all of it - `showDesktopOnlySettings = !isWebClient` - and it
+conflated three different questions: does this need a desktop CLIENT, does it
+need a particular HOST, and has anyone wired it yet. Only the first is about the
+browser, and this repository exists because the browser must not lose what the
+desktop has.
+
+Each site now asks its own question. Orca Account, Mobile, Plugins, SSH Hosts,
+Browser and Computer Use are listed: their RPC families are registered and
+reachable from the tile today, and `browser.screencast.v1` is advertised by
+`orca serve` on the artifact (read off `status.get`, which also settles
+Contradictions #4 in `docs/audit/v1.4.190/99-cross-cutting.md`). Computer Use
+answers `computer.capabilities` with what the host is missing - on Linux, the
+python3-gi and AT-SPI packages - and hiding the section hid that answer.
+
+Mobile Emulator and macOS Permissions move onto the host axis. Both were gated on
+`isMac`, which is `isMacUserAgent()` - the machine RENDERING, not the machine the
+runtime runs on. `status.get` reports `hostPlatform`, and the nav hook already
+resolves it, so a browser driving a Mac host now sees them and a Mac driving a
+Linux host no longer does. That second case was wrong before any browser was
+involved.
+
+Three stay hidden, with the reason recorded at each: Notifications configures
+NATIVE desktop toasts through `RuntimeDesktopSurface`, which is inert with no
+renderer and whose work the runtime already routes to paired clients instead;
+Advanced writes `httpProxyUrl`, absent from the `SettingsUpdate` schema and held
+as a protected secret, so a web client's edits would be silently discarded; Voice
+has eight registered `speech.*` methods but no `speech` namespace in
+`web-preload-api.ts` at all, so its pane would be entirely dead controls - the
+design that closes it is `docs/audit/v1.4.190/N2-speech-design.md`. The system
+tray and menu bar rows are correct as they stand: a browser tab has neither.
+
+Warp import is on the wrong axis too - it reads the HOST's Warp config - but
+`AppearancePane.tsx` makes the same call independently, so it is left alone
+rather than half-moved.
+
+Two patches in this series were dead behind this and are now reachable, which is
+why their own `To test` lines were unfollowable: `plugins-web-bridge.diff` says
+to open Settings > Plugins in the tile, and `pairing-credentials.diff` says to
+open Settings > Mobile. Both headers are corrected in this commit.
+
+To test, open Settings in the tile: Orca Account, Mobile, Plugins, SSH Hosts,
+Browser and Computer Use should be listed, and searching for "plugin" should find
+them. Covered by `settings-nav-web-parity.test.ts`, which asserts the web nav
+both ways - what it must list, and what must stay hidden - and pins that desktop
+behaviour is unchanged.
+Index: b/lib/orca/src/renderer/src/hooks/useSettingsNavigationMetadata.ts
+===================================================================
+--- a/lib/orca/src/renderer/src/hooks/useSettingsNavigationMetadata.ts
++++ b/lib/orca/src/renderer/src/hooks/useSettingsNavigationMetadata.ts
+@@ -128,6 +128,7 @@ export function buildSettingsNavigationM
+   isLocalWindowsHost = isWindows,
+   isWindowsTerminalHost = isWindows,
+   isWebClient,
++  hostPlatform = null,
+   managedBrowserCreationEnabled = !isWebClient,
+   mobileEmulatorCreationEnabled = !isWebClient,
+   isDev = import.meta.env.DEV,
+@@ -139,13 +140,25 @@ export function buildSettingsNavigationM
+   isLocalWindowsHost?: boolean
+   isWindowsTerminalHost?: boolean
+   isWebClient: boolean
++  /** The platform of the machine the runtime runs on, from `status.get`. Null when not yet known. */
++  hostPlatform?: string | null
+   managedBrowserCreationEnabled?: boolean
+   mobileEmulatorCreationEnabled?: boolean
+   isDev?: boolean
+   isLinearConnected?: boolean
+   repos: readonly Repo[]
+ }): SettingsNavSection[] {
++  // Why this no longer gates every section it used to: `!isWebClient` conflated three different
++  // questions — "does this need a desktop client", "does this need a particular HOST", and "has
++  // anyone wired it yet" — and orca-server's whole premise is that the browser must not lose what
++  // the desktop has. What remains behind this flag is only the first question: sections that
++  // configure something a browser genuinely does not have. Each of the others now asks its own.
+   const showDesktopOnlySettings = !isWebClient
++  // `isMac`/`isWindows` are `isMacUserAgent()`/`isWindowsUserAgent()` — the machine RENDERING this.
++  // On the desktop that is also the host, so the user agent answers for both and behaviour is
++  // unchanged. In the tile they are different machines, and only the host's own platform can decide
++  // whether a host-specific section applies.
++  const hostIsMac = isWebClient ? hostPlatform === 'darwin' : isMac
+   const terminalPaneSearchEntries = getTerminalPaneSearchEntries({
+     isWindows,
+     isWindowsTerminalHost,
+@@ -222,20 +235,27 @@ export function buildSettingsNavigationM
+           }
+         ]
+       : []),
++    // Computer Use asks the HOST, not the browser: `computer.capabilities` answers with what this
++    // host is missing (on a Linux host, the python3-gi/AT-SPI packages to install). Hiding the
++    // section from the tile hid that actionable answer behind a section that simply was not there.
++    {
++      id: 'computer-use',
++      title: translate('auto.hooks.useSettingsNavigationMetadata.b35e92364b', 'Computer Use'),
++      description: translate(
++        'auto.hooks.useSettingsNavigationMetadata.0059bd17f3',
++        'Enable agents to control any app on your computer.'
++      ),
++      icon: MousePointerClick,
++      searchEntries: getComputerUsePaneSearchEntries(),
++      group: 'capabilities'
++    },
++    // Voice stays desktop-only for now, and this is the one honest reason in this group: the eight
++    // `speech.*` RPC methods are registered, but `web-preload-api.ts` has no `speech` namespace at
++    // all, so every member of the pane resolves to undefined. Listing it would be a pane of dead
++    // controls. The design that closes it is docs/audit/v1.4.190/N2-speech-design.md.
+     ...(showDesktopOnlySettings
+       ? [
+           {
+-            id: 'computer-use',
+-            title: translate('auto.hooks.useSettingsNavigationMetadata.b35e92364b', 'Computer Use'),
+-            description: translate(
+-              'auto.hooks.useSettingsNavigationMetadata.0059bd17f3',
+-              'Enable agents to control any app on your computer.'
+-            ),
+-            icon: MousePointerClick,
+-            searchEntries: getComputerUsePaneSearchEntries(),
+-            group: 'capabilities'
+-          },
+-          {
+             id: 'voice',
+             title: translate('auto.hooks.useSettingsNavigationMetadata.6a50cdcd7c', 'Voice'),
+             description: translate(
+@@ -248,21 +268,20 @@ export function buildSettingsNavigationM
+           }
+         ]
+       : []),
+-    ...(showDesktopOnlySettings
+-      ? [
+-          {
+-            id: 'orca-account',
+-            title: translate('auto.components.settings.orcaAccount.title', 'Orca Account'),
+-            description: translate(
+-              'auto.components.settings.orcaAccount.description',
+-              'Share work instantly and reach your desktop from Orca Mobile wherever you are.'
+-            ),
+-            icon: CircleUserRound,
+-            searchEntries: getOrcaAccountSettingsSearchEntries(),
+-            group: 'setup'
+-          }
+-        ]
+-      : []),
++    // The account is the host's, and it is upstream's gate for both Artifact sharing and Skill
++    // sharing — the two features this section lists as included. Hiding it from the tile left the
++    // "Sign in to Orca" buttons in those panes pointing at a section a browser could never open.
++    {
++      id: 'orca-account',
++      title: translate('auto.components.settings.orcaAccount.title', 'Orca Account'),
++      description: translate(
++        'auto.components.settings.orcaAccount.description',
++        'Share work instantly and reach your desktop from Orca Mobile wherever you are.'
++      ),
++      icon: CircleUserRound,
++      searchEntries: getOrcaAccountSettingsSearchEntries(),
++      group: 'setup'
++    },
+     {
+       id: 'setup-guide',
+       title: translate(
+@@ -318,21 +337,21 @@ export function buildSettingsNavigationM
+       searchEntries: getIntegrationsPaneSearchEntries(),
+       group: 'setup'
+     },
+-    ...(showDesktopOnlySettings
+-      ? [
+-          {
+-            id: 'mobile',
+-            title: translate('auto.hooks.useSettingsNavigationMetadata.1cd25673df', 'Mobile'),
+-            description: translate(
+-              'auto.hooks.useSettingsNavigationMetadata.95a1886d94',
+-              'Control terminals and agents from your phone.'
+-            ),
+-            icon: Smartphone,
+-            searchEntries: getMobileSettingsPaneSearchEntries(),
+-            group: 'setup'
+-          }
+-        ]
+-      : []),
++    // Pairing a phone is done FROM the machine being paired to, and on orca-server that machine has
++    // no desktop UI — so this was the only route to it and the tile did not list it. The pane's RPCs
++    // (`mobile.createPairingOffer` and siblings) are added by patches/pairing-credentials.diff,
++    // whose own "To test, open Settings > Mobile in the tile" was unfollowable until this.
++    {
++      id: 'mobile',
++      title: translate('auto.hooks.useSettingsNavigationMetadata.1cd25673df', 'Mobile'),
++      description: translate(
++        'auto.hooks.useSettingsNavigationMetadata.95a1886d94',
++        'Control terminals and agents from your phone.'
++      ),
++      icon: Smartphone,
++      searchEntries: getMobileSettingsPaneSearchEntries(),
++      group: 'setup'
++    },
+     {
+       id: 'automations',
+       title: translate('auto.hooks.useSettingsNavigationMetadata.automationsTitle', 'Automations'),
+@@ -423,22 +442,24 @@ export function buildSettingsNavigationM
+       searchEntries: getQuickCommandsPaneSearchEntries(),
+       group: 'workflows'
+     },
+-    ...(showDesktopOnlySettings
+-      ? [
+-          {
+-            id: 'browser',
+-            title: translate('auto.hooks.useSettingsNavigationMetadata.8c197f74a1', 'Browser'),
+-            description: translate(
+-              'auto.hooks.useSettingsNavigationMetadata.e815fd01bd',
+-              'Home page, link routing, and session cookies.'
+-            ),
+-            icon: Globe,
+-            searchEntries: getBrowserPaneCombinedSearchEntries(),
+-            group: 'workflows'
+-          }
+-        ]
+-      : []),
+-    ...(showDesktopOnlySettings
++    // `browser.screencast.v1` is advertised by `orca serve` on this host (read off `status.get`),
++    // and the runtime adds the headless and certificate-trust capabilities beside it, so the browser
++    // pane configures something the tile can actually drive.
++    {
++      id: 'browser',
++      title: translate('auto.hooks.useSettingsNavigationMetadata.8c197f74a1', 'Browser'),
++      description: translate(
++        'auto.hooks.useSettingsNavigationMetadata.e815fd01bd',
++        'Home page, link routing, and session cookies.'
++      ),
++      icon: Globe,
++      searchEntries: getBrowserPaneCombinedSearchEntries(),
++      group: 'workflows'
++    },
++    // The iOS Simulator runs on the HOST. `isMac` here is the user agent of whatever is rendering,
++    // so on the desktop this is unchanged, while the tile now asks the host instead of assuming a
++    // browser can never reach one — a Mac host serving a browser has simulators to offer.
++    ...(hostIsMac
+       ? [
+           {
+             id: 'mobile-emulator',
+@@ -459,6 +480,9 @@ export function buildSettingsNavigationM
+     {
+       id: 'floating-workspace',
+       title: translate('auto.hooks.useSettingsNavigationMetadata.65b19f5bde', 'Floating Workspace'),
++      // Left as it is on purpose: patches/floating-workspace-picker.diff makes the same call in the
++      // pane itself (`const includeBrowser = !isWebClientLocation()`), so the search entries and the
++      // rendered pane agree. Changing one without the other is what makes a search hit lead nowhere.
+       description: showDesktopOnlySettings
+         ? translate(
+             'auto.hooks.useSettingsNavigationMetadata.2d0659f6f0',
+@@ -483,6 +507,11 @@ export function buildSettingsNavigationM
+       ),
+       icon: Palette,
+       searchEntries: getAppearancePaneSearchEntries({
++        // The tray and the menu bar belong to a desktop window; a browser tab has neither, so these
++        // two are correct as they stand. Warp import is a HOST property (it reads the host's Warp
++        // config) and so is on the wrong axis here — but `AppearancePane.tsx` makes the same call
++        // independently, so moving it needs both sites and its own verification that the import
++        // path works over the wire. Left alone rather than half-moved.
+         showWarpImport: showDesktopOnlySettings,
+         showSystemTray: showDesktopOnlySettings && isWindows,
+         showMenuBarIcon: showDesktopOnlySettings && isMac
+@@ -500,6 +529,11 @@ export function buildSettingsNavigationM
+       searchEntries: getInputPaneSearchEntries(),
+       group: 'interface'
+     },
++    // Correct as it stands. This pane configures NATIVE desktop notifications — its own copy calls
++    // it "the master switch for Orca desktop notifications", and it drives
++    // `RuntimeDesktopSurface.showNotification`, which is inert on a host with no renderer. The
++    // runtime already routes notifications to paired clients instead, which is the better
++    // destination, so there is nothing here for a browser to configure.
+     ...(showDesktopOnlySettings
+       ? [
+           {
+@@ -543,21 +577,20 @@ export function buildSettingsNavigationM
+       searchEntries: getStatsPaneSearchEntries(),
+       group: 'interface'
+     },
+-    ...(showDesktopOnlySettings
+-      ? [
+-          {
+-            id: 'ssh',
+-            title: translate('auto.hooks.useSettingsNavigationMetadata.94a5afe910', 'SSH Hosts'),
+-            description: translate(
+-              'auto.hooks.useSettingsNavigationMetadata.31e57d1c70',
+-              'Use existing machines over SSH for files, terminals, Git, and workspaces.'
+-            ),
+-            icon: Cable,
+-            searchEntries: getSshPaneSearchEntries(),
+-            group: 'remote'
+-          }
+-        ]
+-      : []),
++    // The SSH connections belong to the host, not to whatever is rendering: the five `ssh.*` RPC
++    // methods are registered and mobile-allowlisted, and the web preload already carries the `ssh`
++    // namespace. Only the nav entry was missing.
++    {
++      id: 'ssh',
++      title: translate('auto.hooks.useSettingsNavigationMetadata.94a5afe910', 'SSH Hosts'),
++      description: translate(
++        'auto.hooks.useSettingsNavigationMetadata.31e57d1c70',
++        'Use existing machines over SSH for files, terminals, Git, and workspaces.'
++      ),
++      icon: Cable,
++      searchEntries: getSshPaneSearchEntries(),
++      group: 'remote'
++    },
+     {
+       id: 'servers',
+       title: translate(
+@@ -572,7 +605,10 @@ export function buildSettingsNavigationM
+       group: 'remote',
+       badge: translate('auto.hooks.useSettingsNavigationMetadata.40d80bad8a', 'Beta')
+     },
+-    ...(showDesktopOnlySettings && isMac
++    // macOS TCC prompts are granted on the machine the runtime runs on. Same correction as the
++    // emulator: `showDesktopOnlySettings && isMac` asked the renderer's platform, which on a Mac
++    // driving a Linux host was already the wrong machine before any browser was involved.
++    ...(hostIsMac
+       ? [
+           {
+             id: 'developer-permissions',
+@@ -604,6 +640,10 @@ export function buildSettingsNavigationM
+       searchEntries: getPrivacyPaneSearchEntries(),
+       group: 'security'
+     },
++    // Correct as it stands, for a reason worth recording: its one section writes `httpProxyUrl` and
++    // `httpProxyBypassRules`, which are absent from the `SettingsUpdate` RPC schema and whose value
++    // is held as a protected secret on the host. A web client's writes would be rejected by the
++    // strict schema, so listing it would produce a pane that silently discards every edit.
+     ...(showDesktopOnlySettings
+       ? [
+           {
+@@ -650,21 +690,20 @@ export function buildSettingsNavigationM
+       searchEntries: getExperimentalPaneSearchEntries(),
+       group: 'experimental'
+     },
+-    ...(showDesktopOnlySettings
+-      ? [
+-          {
+-            id: 'plugins',
+-            title: translate('auto.hooks.useSettingsNavigationMetadata.pluginsTitle', 'Plugins'),
+-            description: translate(
+-              'auto.hooks.useSettingsNavigationMetadata.pluginsDescription',
+-              'Install and manage experimental Orca plugins.'
+-            ),
+-            icon: Blocks,
+-            searchEntries: getPluginsPaneSearchEntries(),
+-            group: 'experimental'
+-          }
+-        ]
+-      : []),
++    // The plugin RPCs are registered and patches/plugins-web-bridge.diff wires the whole
++    // `window.api.plugins` namespace for the tile. Without this entry that patch's capability was
++    // unreachable and its "To test, open Settings > Plugins in the tile" could not be followed.
++    {
++      id: 'plugins',
++      title: translate('auto.hooks.useSettingsNavigationMetadata.pluginsTitle', 'Plugins'),
++      description: translate(
++        'auto.hooks.useSettingsNavigationMetadata.pluginsDescription',
++        'Install and manage experimental Orca plugins.'
++      ),
++      icon: Blocks,
++      searchEntries: getPluginsPaneSearchEntries(),
++      group: 'experimental'
++    },
+     // Why: one nav row per project, not per repo row — a project set up on
+     // multiple hosts (local + a Remote Orca Server, or two clones) collapses to
+     // a single entry. Derived from repos alone so this list matches the panes.
+@@ -752,6 +791,7 @@ export function useSettingsNavigationMet
+         isLocalWindowsHost,
+         isWindowsTerminalHost,
+         isWebClient,
++        hostPlatform: windowsTerminalCapabilities.hostPlatform ?? null,
+         managedBrowserCreationEnabled,
+         mobileEmulatorCreationEnabled,
+         isDev: import.meta.env.DEV,
+@@ -765,6 +805,7 @@ export function useSettingsNavigationMet
+       isLocalWindowsHost,
+       isWindowsTerminalHost,
+       isWebClient,
++      windowsTerminalCapabilities.hostPlatform,
+       managedBrowserCreationEnabled,
+       mobileEmulatorCreationEnabled,
+       isLinearConnected,
+Index: b/lib/orca/src/renderer/src/hooks/useSettingsNavigationMetadata.test.ts
+===================================================================
+--- a/lib/orca/src/renderer/src/hooks/useSettingsNavigationMetadata.test.ts
++++ b/lib/orca/src/renderer/src/hooks/useSettingsNavigationMetadata.test.ts
+@@ -105,7 +105,7 @@ describe('settings navigation metadata',
+     expect(workflowIds.slice(0, 3)).toEqual(['automations', 'artifacts', 'share-skills'])
+   })
+ 
+-  it('places the Orca account in Set Up on desktop only', () => {
++  it('places the Orca account in Set Up on both clients', () => {
+     const desktopSections = buildSettingsNavigationMetadata({
+       isMac: false,
+       isWindows: false,
+@@ -116,7 +116,9 @@ describe('settings navigation metadata',
+ 
+     expect(account?.group).toBe('setup')
+     expect(account?.searchEntries[0]?.title).toBe('Orca account')
+-    expect(ids({ isWebClient: true })).not.toContain('orca-account')
++    // The account is the host's, and it gates artifact and skill sharing. A browser that cannot
++    // open this section has nowhere for those panes' "Sign in to Orca" to lead.
++    expect(ids({ isWebClient: true })).toContain('orca-account')
+   })
+ 
+   it('puts web-safe AI capability panes at the top while hiding desktop-only panes', () => {
+@@ -124,13 +126,13 @@ describe('settings navigation metadata',
+       'agents',
+       'accounts',
+       'orchestration',
+-      'setup-guide',
+-      'general',
+-      'integrations'
++      'computer-use',
++      'orca-account',
++      'setup-guide'
+     ])
+   })
+ 
+-  it('keeps desktop-only Settings panes out of web metadata', () => {
++  it('keeps genuinely desktop-only Settings panes out of web metadata', () => {
+     const webSections = buildSettingsNavigationMetadata({
+       isMac: false,
+       isWindows: false,
+@@ -139,12 +141,15 @@ describe('settings navigation metadata',
+     })
+     const webIds = webSections.map((section) => section.id)
+ 
+-    expect(webIds).not.toContain('browser')
+-    expect(webIds).not.toContain('ssh')
+-    expect(webIds).not.toContain('mobile')
+-    expect(webIds).not.toContain('computer-use')
++    // Voice has no `speech` namespace in the web preload, so its pane would be dead controls;
++    // Advanced writes protected-secret proxy keys the RPC schema rejects; Notifications configures
++    // native desktop toasts through a host port that is inert with no renderer.
+     expect(webIds).not.toContain('voice')
+     expect(webIds).not.toContain('advanced')
++    expect(webIds).not.toContain('notifications')
++    // Host-specific, and this host is Linux.
++    expect(webIds).not.toContain('mobile-emulator')
++    expect(webIds).not.toContain('developer-permissions')
+     expect(webIds).toContain('servers')
+     expect(webIds).toContain('repo-repo-1')
+     const floatingWorkspace = webSections.find((section) => section.id === 'floating-workspace')
+@@ -159,6 +164,30 @@ describe('settings navigation metadata',
+     )
+   })
+ 
++  it('lists the host-owned panes the tile can reach', () => {
++    // Each has a registered RPC family the web client already calls; they were hidden by the same
++    // `!isWebClient` flag that hid the genuinely desktop-only ones.
++    const webIds = ids({ isWebClient: true })
++
++    expect(webIds).toContain('browser')
++    expect(webIds).toContain('ssh')
++    expect(webIds).toContain('mobile')
++    expect(webIds).toContain('computer-use')
++  })
++
++  it('offers host-specific panes when the host is a Mac', () => {
++    const macHost = buildSettingsNavigationMetadata({
++      isMac: false,
++      isWindows: false,
++      isWebClient: true,
++      hostPlatform: 'darwin',
++      repos: [repo]
++    }).map((section) => section.id)
++
++    expect(macHost).toContain('mobile-emulator')
++    expect(macHost).toContain('developer-permissions')
++  })
++
+   it('keeps the Browser shortcut searchable for a capable web runtime', () => {
+     const sections = buildSettingsNavigationMetadata({
+       isMac: false,
+@@ -205,7 +234,7 @@ describe('settings navigation metadata',
+     expect(entry?.targetSectionId).toBe('ephemeral-vms')
+   })
+ 
+-  it('places Plugins under Experimental on desktop and omits it on the web', () => {
++  it('places Plugins under Experimental on both clients', () => {
+     const desktopSections = buildSettingsNavigationMetadata({
+       isMac: false,
+       isWindows: false,
+@@ -216,7 +245,9 @@ describe('settings navigation metadata',
+ 
+     expect(desktopSections.find((section) => section.id === 'plugins')?.group).toBe('experimental')
+     expect(desktopIds.indexOf('plugins')).toBe(desktopIds.indexOf('experimental') + 1)
+-    expect(ids({ isWebClient: true })).not.toContain('plugins')
++    // The plugin RPCs are registered and the tile has the whole preload namespace; omitting the
++    // entry was the only thing keeping that capability unreachable.
++    expect(ids({ isWebClient: true })).toContain('plugins')
+   })
+ 
+   it('omits Windows project runtime search entries when the active host is unsupported', () => {

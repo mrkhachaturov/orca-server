@@ -20,3 +20,5 @@ usage-analytics.diff
 agent-cold-restore.diff
 workspace-restore.diff
 plugins-web-bridge.diff
+settings-nav-web-parity.diff
+web-share-surfaces.diff
