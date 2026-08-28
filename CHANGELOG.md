@@ -31,13 +31,16 @@ Orca v9.99.999
 
 ## Unreleased
 
+Orca v1.4.190
+
 ### Added
 
-- Settings now lists ten sections the browser was missing but the desktop had:
-  Orca Account, Mobile, Plugins, SSH Hosts, Browser and Computer Use are shown,
-  and settings search finds them. Mobile Emulator and macOS Permissions now
-  follow the server's platform instead of the browser's, so they appear when the
-  server is a Mac.
+- Settings in the browser now lists the sections it can reach: Orca Account,
+  Mobile, Plugins, SSH Hosts, Browser and Computer Use, and settings search finds
+  them. All ten desktop-only sections were hidden by one flag; Voice,
+  Notifications and Advanced stay hidden, with the reason recorded at each.
+  Mobile Emulator and macOS Permissions now follow the server's platform instead
+  of the browser's, so they appear when the server is a Mac.
 - Settings > Artifacts and Settings > Share Skills can be turned on from the
   browser. Both toggles previously read "Desktop only. Open Settings on the host
   device" — a screen a headless server does not have — so publishing could not be

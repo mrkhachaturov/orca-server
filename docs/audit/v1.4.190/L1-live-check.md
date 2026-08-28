@@ -103,7 +103,7 @@ the device gate and returns `{status:'reconnect-required'}`; with the gate off i
 supported." The host's own CLI (`clientKind === undefined`) gets past it. The device gate is
 caller-blind: `orca skills share` typed by a human is refused exactly like an agent.
 
-### Sign-in — why it cannot be started from the tile
+### Sign-in — what the host can and cannot do
 
 - The Orca account session is host-side only, `<userData>/profiles/<id>/account-session.json.enc`.
   There is no `orcaProfiles.*` RPC at v1.4.190; the web preload answers a hardcoded
@@ -117,18 +117,27 @@ caller-blind: `orca skills share` typed by a human is refused exactly like an ag
   packaged build refuses the plaintext branch, so it falls to `memory-only`. A session would
   survive until the next serve restart. That corrects the assumption that sealing throws.
 - `beginOrcaCloudPkceFlow` opens an http server on the **host's** 127.0.0.1 and calls
-  `shell.openExternal`. The host has no `xdg-open`, no `gio`, and no browser binary at all, so the
-  call cannot succeed; and even if it did, the redirect would land on the host's loopback, not the
-  operator's.
+  `shell.openExternal`. The host has no `xdg-open` and no `gio`, so that call cannot succeed.
+  **It does have a browser.** Orca ships and runs its own, `agent-browser-linux-x64`
+  (`agent-browser-bridge.ts` builds the name as `agent-browser-${platform()}-${arch()}`), and a
+  headless `serve` provides browser pages through the offscreen backend over the same
+  `browser.screencast.v1` path a desktop renderer uses (`orca-runtime.ts`, the `hasRenderer ||
+  hasOffscreen` filter); `browser.headless.v1` is advertised to tell clients this host owns browser
+  pages and they must not fall back to a local desktop tab. So the redirect landing on the host's
+  loopback is not the dead end it looks like: a page in Orca's own browser **is** on the host's
+  loopback.
 - Probed unauthenticated against `login.onorca.dev`: a `http://127.0.0.1:<port>` redirect_uri is
   accepted (302, error delivered *to* the redirect), any https origin is rejected with a flat 400,
   `/.well-known/openid-configuration` and `/.well-known/oauth-authorization-server` are 404, and
   `/v1/desktop/auth/device` is 404 on GET and POST. **Loopback-only, and no device-code grant.**
   So no proxy-reachable callback route can be registered.
 
-The only flow that could complete from a browser is manual code entry: the host mints the authorize
-URL and keeps the `code_verifier`, the operator pastes back the code from the failed-loopback URL
-bar, the host exchanges it. PKCE makes the pasted code useless on its own. Not built.
+**Corrected conclusion.** The loop `beginOrcaCloudPkceFlow` needs closes with no manual step:
+keep the flow as it is and replace its one `shell.openExternal(authorizeUrl)` call with opening
+that URL in Orca's own browser when no system browser exists. The operator can see and drive that
+page from the tile. Manual code entry — the host mints the URL and keeps the `code_verifier`, the
+operator pastes the code back — is the fallback, not the design. Neither is built in this release;
+the route, what was measured and the one open risk are in `N3-orca-account-sign-in.md`.
 
 ### The settings navigation
 
