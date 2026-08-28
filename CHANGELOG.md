@@ -31,6 +31,20 @@ Orca v9.99.999
 
 ## Unreleased
 
+### Fixed
+
+- Settings in the browser no longer lists sections that open onto a blank page.
+  4.190.1 added Orca Account, Mobile, Browser, SSH Hosts, Computer Use and
+  Plugins to the settings sidebar, but the page behind them still rendered
+  nothing, so clicking any of the six landed on an empty pane. Computer Use,
+  Mobile and Browser now open onto their real panes. Orca Account, Plugins and
+  SSH Hosts are hidden again until the browser can do something with them:
+  signing in to an Orca account has to happen on the server and is not built
+  yet, and plugin install and SSH host management have no browser route, so
+  those panes could only ever be empty. Mobile Emulator and macOS Permissions no
+  longer follow the server's platform; that change was never exercised against a
+  Mac server.
+
 ## [4.190.1] - 2026-08-28
 
 Orca v1.4.190
