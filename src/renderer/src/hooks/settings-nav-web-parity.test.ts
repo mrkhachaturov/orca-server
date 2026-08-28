@@ -1,106 +1,98 @@
 import { describe, expect, it } from 'vitest'
 import { buildSettingsNavigationMetadata } from './useSettingsNavigationMetadata'
 
-// Overlay-owned so it survives `quilt pop`: with the patch popped, the blanket
-// `showDesktopOnlySettings = !isWebClient` returns and every "web can reach" case below fails.
-
-function ids(options: {
-  isWebClient: boolean
-  hostPlatform?: string | null
-  isMac?: boolean
-  isWindows?: boolean
-}): string[] {
+function ids(options: { isWebClient: boolean; isMac?: boolean; isWindows?: boolean }): string[] {
   return buildSettingsNavigationMetadata({
     isMac: options.isMac ?? false,
     isWindows: options.isWindows ?? false,
     isWebClient: options.isWebClient,
-    hostPlatform: options.hostPlatform ?? null,
     isDev: false,
     repos: []
   }).map((entry) => entry.id)
 }
 
-const web = (hostPlatform: string | null = 'linux') => ids({ isWebClient: true, hostPlatform })
+const web = (over: { isMac?: boolean } = {}) => ids({ isWebClient: true, ...over })
 const desktop = (over: { isMac?: boolean; isWindows?: boolean } = {}) =>
   ids({ isWebClient: false, ...over })
 
-describe('settings navigation — the tile reaches what the host can do', () => {
-  it('lists the account pane the sharing features gate on', () => {
-    // Both Artifacts and Share Skills render a "Sign in to Orca" affordance; without this entry it
-    // pointed at a section a browser could never open.
-    expect(web()).toContain('orca-account')
+// Listed because each pane draws real host data in the tile. Orca Account and Plugins are partial —
+// no sign-in, and no plugin list until `pluginSystemEnabled` reaches the host — and partial is not a
+// reason to hide a capability from the browser.
+const WEB_SECTIONS_WITH_A_PANE = [
+  'computer-use',
+  'mobile',
+  'browser',
+  'orca-account',
+  'plugins'
+]
+
+// Not listed, and the reason differs by section. `ssh` is the one that would MISLEAD rather than sit
+// empty: `orca serve` never installs the SSH layer, so the registry is null and every control
+// reports a host state it never read. `voice` has no `speech` namespace in the web preload,
+// `advanced` writes proxy keys the settings schema rejects, `notifications` drives native desktop
+// toasts through an inert host port, and the two Mac sections keep upstream's renderer gate.
+const WEB_SECTIONS_WITHOUT_A_PANE = [
+  'ssh',
+  'mobile-emulator',
+  'developer-permissions',
+  'voice',
+  'notifications',
+  'advanced',
+  'dev'
+]
+
+describe('settings navigation — the tile lists only what it can open', () => {
+  it.each(WEB_SECTIONS_WITH_A_PANE)('lists %s', (id) => {
+    expect(web()).toContain(id)
   })
 
-  it('lists the panes our own series already wired', () => {
-    // Each of these has a patch behind it whose "To test" says to open it in the tile.
-    expect(web()).toContain('plugins')
-    expect(web()).toContain('mobile')
+  it.each(WEB_SECTIONS_WITHOUT_A_PANE)('does not list %s', (id) => {
+    expect(web()).not.toContain(id)
   })
 
-  it('lists the host-owned panes whose RPCs the tile already reaches', () => {
-    expect(web()).toContain('ssh')
-    expect(web()).toContain('browser')
-    expect(web()).toContain('computer-use')
-  })
-
-  it('still hides what a browser genuinely has no equivalent for', () => {
-    // Native desktop notifications (an inert host port with no renderer), the proxy pane whose keys
-    // the RPC schema rejects, and dev tooling.
-    const listed = web()
-    expect(listed).not.toContain('notifications')
-    expect(listed).not.toContain('advanced')
-    expect(listed).not.toContain('dev')
-  })
-
-  it('still hides Voice until its preload namespace exists', () => {
-    // `web-preload-api.ts` has no `speech` namespace, so every control in that pane would be
-    // undefined. Listing it would be a pane of dead controls.
-    expect(web()).not.toContain('voice')
+  it('does not list the Mac-only sections to a browser running on a Mac', () => {
+    expect(web({ isMac: true })).not.toContain('mobile-emulator')
+    expect(web({ isMac: true })).not.toContain('developer-permissions')
   })
 })
 
-describe('settings navigation — host-specific sections ask the host', () => {
-  it('offers the iOS simulator to a browser driving a Mac host', () => {
-    expect(web('darwin')).toContain('mobile-emulator')
-    expect(web('darwin')).toContain('developer-permissions')
-  })
-
-  it('does not offer them for a Linux host', () => {
-    expect(web('linux')).not.toContain('mobile-emulator')
-    expect(web('linux')).not.toContain('developer-permissions')
-  })
-
-  it('does not offer them before the host platform is known', () => {
-    expect(web(null)).not.toContain('mobile-emulator')
-  })
-
-  it('leaves desktop behaviour unchanged, where renderer and host are one machine', () => {
-    expect(desktop({ isMac: true })).toContain('mobile-emulator')
+describe('settings navigation — desktop behaviour is unchanged', () => {
+  it('still gates macOS Permissions on the renderer being a Mac', () => {
     expect(desktop({ isMac: true })).toContain('developer-permissions')
-    expect(desktop({ isMac: false })).not.toContain('mobile-emulator')
-    // Everything the desktop listed before is still listed.
-    for (const id of ['orca-account', 'mobile', 'plugins', 'ssh', 'browser', 'computer-use', 'voice', 'notifications', 'advanced']) {
-      expect(desktop({ isMac: true })).toContain(id)
-    }
+    expect(desktop({ isMac: false })).not.toContain('developer-permissions')
+  })
+
+  it('still lists the emulator on any desktop, as upstream does', () => {
+    expect(desktop({ isMac: true })).toContain('mobile-emulator')
+    expect(desktop({ isMac: false })).toContain('mobile-emulator')
+  })
+
+  it.each([
+    'orca-account',
+    'mobile',
+    'plugins',
+    'ssh',
+    'browser',
+    'computer-use',
+    'voice',
+    'notifications',
+    'advanced'
+  ])('still lists %s', (id) => {
+    expect(desktop({ isMac: true })).toContain(id)
   })
 })
 
 describe('settings navigation — search follows visibility', () => {
-  it('gives every listed section at least one search entry', () => {
-    // A section the nav lists but search cannot find is the same defect in a different place: the
-    // hidden panes were unreachable by Cmd+F too, because entries come from this same builder.
-    const reachable = buildSettingsNavigationMetadata({
+  it.each(WEB_SECTIONS_WITH_A_PANE)('makes %s findable by search', (id) => {
+    const section = buildSettingsNavigationMetadata({
       isMac: false,
       isWindows: false,
       isWebClient: true,
-      hostPlatform: 'linux',
       isDev: false,
       repos: []
-    })
-    for (const id of ['orca-account', 'plugins', 'mobile', 'ssh', 'browser', 'computer-use']) {
-      const item = reachable.find((entry) => entry.id === id)
-      expect(item, `${id} is not in the nav`).toBeDefined()
-      expect(item!.searchEntries.length, `${id} has no search entries`).toBeGreaterThan(0)
-    }
+    }).find((entry) => entry.id === id)
+
+    expect(section, `${id} is not in the nav`).toBeDefined()
+    expect(section?.searchEntries.length ?? 0).toBeGreaterThan(0)
   })
 })

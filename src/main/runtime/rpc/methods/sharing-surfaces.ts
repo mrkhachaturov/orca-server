@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { defineMethod, type RpcMethod } from '../core'
-import { getRegisteredOrcaProfileAuthStatus } from '../../../orca-profiles/orca-profile-auth-registry'
+import {
+  getRegisteredOrcaProfileAuthStatus,
+  runRegisteredOrcaProfileSignOut
+} from '../../../orca-profiles/orca-profile-auth-registry'
 
 /**
  * Mirrors the desktop `orcaProfiles:authStatus` handler (src/main/ipc/orca-profiles.ts). A read,
@@ -8,6 +11,13 @@ import { getRegisteredOrcaProfileAuthStatus } from '../../../orca-profiles/orca-
  * capability flags, never the access or refresh token, which never leave the host.
  */
 const AuthStatusParams = z.object({}).default({})
+
+/**
+ * Clearing the host's own account session, mirroring the desktop `orcaProfiles:signOutCurrent`
+ * handler. Host-mutating, so it stays off `MOBILE_RPC_METHOD_ALLOWLIST`: a paired phone must not be
+ * able to sign the server owner out.
+ */
+const SignOutCurrentParams = z.object({}).default({})
 
 /**
  * The two device-wide publish capabilities. Deliberately NOT folded into upstream's
@@ -36,6 +46,11 @@ export const SHARING_SURFACE_METHODS: RpcMethod[] = [
     name: 'orcaProfiles.authStatus',
     params: AuthStatusParams,
     handler: () => getRegisteredOrcaProfileAuthStatus()
+  }),
+  defineMethod({
+    name: 'orcaProfiles.signOutCurrent',
+    params: SignOutCurrentParams,
+    handler: () => runRegisteredOrcaProfileSignOut()
   }),
   defineMethod({
     name: 'settings.updateSharingCapabilities',

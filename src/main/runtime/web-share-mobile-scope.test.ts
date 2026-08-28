@@ -59,6 +59,13 @@ describe('web share surfaces — mobile scope', () => {
     expect(allowed.has('settings.updateSharingCapabilities')).toBe(false)
   })
 
+  it('does not let a paired phone sign the server owner out', () => {
+    // Sign-out clears the host's own account session and fences the relay the phone is speaking
+    // over. Host-mutating, so runtime scope only.
+    const allowed = mobileRpcAllowlist()
+    expect(allowed.has('orcaProfiles.signOutCurrent')).toBe(false)
+  })
+
   it('does not let a paired phone write or delete skill folders on the host', () => {
     const allowed = mobileRpcAllowlist()
     expect(SKILL_INSTALL_RAIL.filter((method) => allowed.has(method))).toEqual([])
