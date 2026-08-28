@@ -31,19 +31,29 @@ Orca v9.99.999
 
 ## Unreleased
 
+Orca v1.4.190
+
 ### Fixed
 
-- Settings in the browser no longer lists sections that open onto a blank page.
-  4.190.1 added Orca Account, Mobile, Browser, SSH Hosts, Computer Use and
-  Plugins to the settings sidebar, but the page behind them still rendered
-  nothing, so clicking any of the six landed on an empty pane. Computer Use,
-  Mobile and Browser now open onto their real panes. Orca Account, Plugins and
-  SSH Hosts are hidden again until the browser can do something with them:
-  signing in to an Orca account has to happen on the server and is not built
-  yet, and plugin install and SSH host management have no browser route, so
-  those panes could only ever be empty. Mobile Emulator and macOS Permissions no
-  longer follow the server's platform; that change was never exercised against a
-  Mac server.
+- Every settings section the browser lists now opens onto a real pane. 4.190.1
+  added Orca Account, Mobile, Browser, SSH Hosts, Computer Use and Plugins to the
+  settings sidebar, but the page behind them was still hidden, so clicking any of
+  the six landed on a blank pane and settings search led there too. Computer Use,
+  Mobile, Browser, Orca Account and Plugins now open onto their panes. Two of them
+  are partial and say so: Orca Account shows the server's real account state but
+  cannot start a sign-in, and the Plugins list stays empty until the plugin-system
+  switch is sent to the server.
+- SSH Hosts is no longer listed in the browser. `orca serve` never starts the SSH
+  layer, so the pane would report an empty host state it never read: an Import
+  that says "already in sync" without contacting anything, and a Remove that
+  reports success having done nothing. Starting that layer under `serve` is
+  separate work and will bring the section back.
+- Settings > Orca Account "Sign Out" now signs the server out. It reported
+  success without reaching the server, so the account came back on the next
+  reload. Signing in still has to be done on the server itself.
+- Settings > Mobile Emulator and Developer Permissions follow the browser's
+  platform again, not the server's. The 4.190.1 change was never exercised
+  against a Mac server.
 
 ## [4.190.1] - 2026-08-28
 

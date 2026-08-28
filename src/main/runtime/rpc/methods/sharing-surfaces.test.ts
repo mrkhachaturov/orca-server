@@ -1,8 +1,14 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { ALL_RPC_METHODS } from './index'
 import { SHARING_SURFACE_METHODS } from './sharing-surfaces'
-import { setOrcaProfileAuthStatusProvider } from '../../../orca-profiles/orca-profile-auth-registry'
-import type { OrcaProfileAuthStatus } from '../../../../shared/orca-profiles'
+import {
+  setOrcaProfileAuthStatusProvider,
+  setOrcaProfileSignOutProvider
+} from '../../../orca-profiles/orca-profile-auth-registry'
+import type {
+  OrcaProfileAuthStatus,
+  SignOutCurrentOrcaProfileResult
+} from '../../../../shared/orca-profiles'
 
 // Why this file lives in the overlay and not beside the patched allowlist test: a patch's
 // assertions inside a file the patch itself edits are DELETED when the patch pops, so they cannot
@@ -28,16 +34,18 @@ const connectedStatus: OrcaProfileAuthStatus = {
 }
 
 describe('sharing surface RPC registration', () => {
-  it('registers both methods in ALL_RPC_METHODS', () => {
+  it('registers all three methods in ALL_RPC_METHODS', () => {
     // Without the patch, rpc/methods/index.ts never spreads SHARING_SURFACE_METHODS, so the tile's
     // toggle has nowhere to send the grant and Artifacts keeps reading a fabricated auth status.
     expect(method('settings.updateSharingCapabilities')).toBeDefined()
     expect(method('orcaProfiles.authStatus')).toBeDefined()
+    expect(method('orcaProfiles.signOutCurrent')).toBeDefined()
   })
 
-  it('exports exactly the two methods it registers', () => {
+  it('exports exactly the three methods it registers', () => {
     expect(SHARING_SURFACE_METHODS.map((m) => m.name).sort()).toEqual([
       'orcaProfiles.authStatus',
+      'orcaProfiles.signOutCurrent',
       'settings.updateSharingCapabilities'
     ])
   })
@@ -99,6 +107,39 @@ describe('orcaProfiles.authStatus', () => {
     // Artifacts page blame the host for a browser limitation.
     expect(() => own('orcaProfiles.authStatus').handler({}, emptyCtx)).toThrow(
       'orca_profile_auth_unavailable'
+    )
+  })
+})
+
+describe('orcaProfiles.signOutCurrent', () => {
+  beforeEach(() => {
+    setOrcaProfileSignOutProvider(null)
+  })
+
+  it('clears the session the host holds', async () => {
+    const signedOut: SignOutCurrentOrcaProfileResult = {
+      status: 'signed-out',
+      auth: {
+        activeProfileId: 'local-default',
+        configured: false,
+        state: 'unconfigured',
+        persistence: 'none'
+      },
+      activeProfileId: 'local-default',
+      profiles: []
+    }
+    setOrcaProfileSignOutProvider(() => Promise.resolve(signedOut))
+
+    await expect(own('orcaProfiles.signOutCurrent').handler({}, emptyCtx)).resolves.toEqual(
+      signedOut
+    )
+  })
+
+  it('rejects rather than reporting a sign-out no host performed', async () => {
+    // The only status this result carries is 'signed-out', so a fabricated one reads as success at
+    // every caller — the defect this method exists to remove.
+    await expect(own('orcaProfiles.signOutCurrent').handler({}, emptyCtx)).rejects.toThrow(
+      'orca_profile_sign_out_unavailable'
     )
   })
 })

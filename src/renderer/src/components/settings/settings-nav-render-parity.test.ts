@@ -1,3 +1,18 @@
+// What this catches and what it does not.
+//
+// It reads `Settings.tsx` as TEXT and pairs the ids it finds with the JSX conditions wrapping them,
+// then fails on any id the web nav lists that the page does not render ungated. That is the class
+// v4.190.1 shipped: six nav rows whose panes were still behind `showDesktopOnlySettings`.
+//
+// Two limits, recorded so the next session inherits them rather than rediscovering them:
+//
+//  1. It reasons about gate conditions by NAME, not by evaluating them. `WEB_SAFE_GATES` below is
+//     how a new condition gets declared safe; until it is listed, a section behind it reads as
+//     hidden. So the test cannot be fooled by a rename, but it also cannot tell a condition that is
+//     true in a browser from one that is not — a human decides that and writes it down.
+//  2. It says nothing about what a pane DRAWS. A section that renders and is empty, or renders
+//     controls that all resolve to stubs, passes here. Only opening the pane answers that; the
+//     per-section reports under docs/audit/settings/ are the standing record of which ones do.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -53,10 +68,17 @@ function collectGatedSections(source: string): GatedSection[] {
   return sections
 }
 
+/**
+ * Gate conditions that are true for a web client, each because the pane behind it works in the
+ * tile. Anything not here counts as hiding the section, so a pane wrapped in a NEW condition fails
+ * this test until someone states why that condition is web-safe.
+ */
+const WEB_SAFE_GATES = new Set<string>([])
+
 function sectionIdsRenderedForWebClient(source: string): Set<string> {
   return new Set(
     collectGatedSections(source)
-      .filter((section) => !section.gates.some((gate) => gate.includes('showDesktopOnlySettings')))
+      .filter((section) => section.gates.every((gate) => WEB_SAFE_GATES.has(gate)))
       .map((section) => section.id)
   )
 }
@@ -77,9 +99,7 @@ describe('settings navigation and the Settings page agree for a web client', () 
     const gated = collectGatedSections(readSettingsPageSource())
 
     expect(gated.map((section) => section.id)).toContain('plugins')
-    expect(gated.find((section) => section.id === 'orca-account')?.gates).toEqual([
-      'showDesktopOnlySettings'
-    ])
+    expect(gated.find((section) => section.id === 'ssh')?.gates).toEqual(['showDesktopOnlySettings'])
     expect(gated.find((section) => section.id === 'general')?.gates).toEqual([])
   })
 

@@ -1,4 +1,7 @@
-import type { OrcaProfileAuthStatus } from '../../shared/orca-profiles'
+import type {
+  OrcaProfileAuthStatus,
+  SignOutCurrentOrcaProfileResult
+} from '../../shared/orca-profiles'
 
 /**
  * The Orca account auth-status provider, split out of the `orcaProfiles:*` IPC handlers.
@@ -17,9 +20,13 @@ import type { OrcaProfileAuthStatus } from '../../shared/orca-profiles'
  * process singletons keyed by userData path, so resolving them a second time runtime-side
  * would answer from a different cache than the one sign-in writes.
  *
- * Read-only by design. This registry reports whether the host holds a session; it never mints,
- * refreshes or clears one. Initiating sign-in from the tile needs the authorization code to reach
- * the host, which upstream's loopback PKCE flow cannot deliver to a browser on another machine.
+ * Two providers, and the split is the point. The status read never mints, refreshes or clears a
+ * session. Sign-out clears one, and it is here rather than left to the client because the web
+ * preload's own `signOutCurrent` returned a canned `signed-out` that never reached the host: the
+ * pane toasted success, re-read the host status, and showed the account still signed in.
+ *
+ * Initiating sign-in from the tile is still not here — the authorization code has to reach the
+ * host, which upstream's loopback PKCE flow cannot deliver to a browser on another machine.
  */
 
 export type OrcaProfileAuthStatusProvider = () => OrcaProfileAuthStatus
@@ -42,4 +49,24 @@ export function getRegisteredOrcaProfileAuthStatus(): OrcaProfileAuthStatus {
     throw new Error('orca_profile_auth_unavailable')
   }
   return provider()
+}
+
+export type OrcaProfileSignOutProvider = () => Promise<SignOutCurrentOrcaProfileResult>
+
+let signOutProvider: OrcaProfileSignOutProvider | null = null
+
+export function setOrcaProfileSignOutProvider(next: OrcaProfileSignOutProvider | null): void {
+  signOutProvider = next
+}
+
+/**
+ * Why this throws rather than answering a `signed-out` shape: the result type has one status, so a
+ * fabricated success is indistinguishable from a real one at every caller. A host that cannot clear
+ * its own session must say so.
+ */
+export function runRegisteredOrcaProfileSignOut(): Promise<SignOutCurrentOrcaProfileResult> {
+  if (!signOutProvider) {
+    return Promise.reject(new Error('orca_profile_sign_out_unavailable'))
+  }
+  return signOutProvider()
 }

@@ -41,6 +41,19 @@ so it arrives through a settable registry in the overlay - the shape
 `usage/usage-store-registry.ts` already uses - keeping
 `config/runtime-electron-baseline.txt` empty.
 
+`signOutCurrent` was the other half of that constant, and worse: it returned
+`status: 'signed-out'` without contacting anything, so the store toasted "Signed
+out of profile" and then re-read a host status still showing the account
+connected. Harmless while the status was fabricated too; armed the moment the
+read became real. It now travels on `orcaProfiles.signOutCurrent`, whose host
+provider fences the relay before clearing the session - the same order the
+desktop handler gets from `onBeforeOrcaProfileSignOut`. There is deliberately no
+offline fallback: `SignOutCurrentOrcaProfileResult` carries one status, so any
+locally-built answer reads as success at every caller. A rejection is what the
+store already renders as "Failed to sign out". Off
+`MOBILE_RPC_METHOD_ALLOWLIST` - a paired phone must not sign the server owner
+out.
+
 Signing in still cannot be STARTED from the tile, and `connectCurrent` now says
 so instead of blaming the host. Upstream opens a loopback HTTP server on the
 host's own 127.0.0.1, hands it the authorization code, and calls
@@ -66,11 +79,15 @@ extracts entries by scanning for single-quoted strings, so one stray quote
 re-pairs every entry after it and drops them from the parsed set silently. A
 contraction in a comment cost a green run here.
 
+To test sign-out, sign the host in on its own console, then press Sign Out in
+Settings > Orca Account in the tile: the account must come back signed out after
+a reload, not just toast that it did.
+
 To test, open Settings > Artifacts in the tile with the host signed out: the
 publish toggle should be usable, and turning it on should survive a reload and a
 serve restart. Same in Settings > Share Skills, after which `orca skills share`
 on the host stops answering `agent_skill_sharing_disabled`. Covered by
-`sharing-surfaces.test.ts` for the two new methods and the strict grant schema,
+`sharing-surfaces.test.ts` for the three new methods and the strict grant schema,
 `web-share-mobile-scope.test.ts` for what a paired phone may and may not reach,
 `skills-paired-client-share.test.ts` for the lifted refusal and the checks that
 stay, `web-share-surfaces.test.ts` for the preload routing, and
@@ -80,16 +97,22 @@ Index: b/lib/orca/src/main/index.ts
 ===================================================================
 --- a/lib/orca/src/main/index.ts
 +++ b/lib/orca/src/main/index.ts
-@@ -39,6 +39,8 @@ import { initSessionParseCachePersistenc
+@@ -39,6 +39,14 @@ import { initSessionParseCachePersistenc
  import { ensureActiveOrcaProfile, initOrcaProfilePaths } from './orca-profiles/profile-index-store'
  import { getOrcaCloudAuthConfig } from './orca-profiles/profile-cloud-auth-config'
  import { getProfileUserDataPath } from './orca-profiles/profile-storage-paths'
-+import { getCurrentOrcaProfileAuthStatus } from './orca-profiles/profile-cloud-service'
-+import { setOrcaProfileAuthStatusProvider } from './orca-profiles/orca-profile-auth-registry'
++import {
++  getCurrentOrcaProfileAuthStatus,
++  signOutCurrentOrcaProfile
++} from './orca-profiles/profile-cloud-service'
++import {
++  setOrcaProfileAuthStatusProvider,
++  setOrcaProfileSignOutProvider
++} from './orca-profiles/orca-profile-auth-registry'
  import { applyAppIcon } from './app-icon'
  import { relaunchApp } from './app-relaunch'
  import { StatsCollector, initStatsPath } from './stats/collector'
-@@ -2847,6 +2849,12 @@ void app.whenReady().then(async () => {
+@@ -2847,6 +2855,20 @@ void app.whenReady().then(async () => {
      )
    )
    runtimeService.setSkillCloudService(new SkillCloudService(app.getPath('userData')))
@@ -99,6 +122,14 @@ Index: b/lib/orca/src/main/index.ts
 +  setOrcaProfileAuthStatusProvider(() =>
 +    getCurrentOrcaProfileAuthStatus(getProfileUserDataPath())
 +  )
++  // Sign-out is the one account mutation the tile gets, and it fences the relay first for the same
++  // reason the desktop path does through `onBeforeOrcaProfileSignOut`: a refresh already in flight
++  // must not outlive the sign-out. Without this the web preload answered a canned `signed-out` that
++  // never reached the host.
++  setOrcaProfileSignOutProvider(async () => {
++    desktopRelayService?.fenceAndCloseNow()
++    return signOutCurrentOrcaProfile(getProfileUserDataPath())
++  })
    runtimeService.setAccountServices({ claudeAccounts, codexAccounts, rateLimits })
    runtimeService.setCommitMessageAgentEnvironmentResolvers({
      // Why: Codex hooks/auth live in Orca's managed runtime home even for the default path, so every launch must resolve CODEX_HOME via runtime-home.
@@ -393,15 +424,18 @@ Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
  import type { SshConnectionState, SshTarget } from '../../../shared/ssh-types'
  import {
    getDefaultOnboardingState,
-@@ -72,6 +77,7 @@ import {
+@@ -72,6 +77,10 @@ import {
    createDefaultLocalOrcaProfile,
    DEFAULT_LOCAL_ORCA_PROFILE_ID
  } from '../../../shared/orca-profiles'
-+import type { OrcaProfileAuthStatus } from '../../../shared/orca-profiles'
++import type {
++  OrcaProfileAuthStatus,
++  SignOutCurrentOrcaProfileResult
++} from '../../../shared/orca-profiles'
  import { legacyBaseRefSearchResult } from '../../../shared/base-ref-search-result'
  import { EMPTY_PTY_MAIN_DELIVERY_DIAGNOSTICS } from '../../../shared/pty-delivery-diagnostics'
  import { createE2EConfig } from '../../../shared/e2e-config'
-@@ -559,14 +565,26 @@ async function writeWebClipboardText(tex
+@@ -559,14 +568,26 @@ async function writeWebClipboardText(tex
  }
  
  function createWebPreloadApi(): Partial<PreloadApi> {
@@ -436,7 +470,7 @@ Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
  
    return {
      app: {
-@@ -701,9 +719,17 @@ function createWebPreloadApi(): Partial<
+@@ -701,20 +722,34 @@ function createWebPreloadApi(): Partial<
            duplicateRepoId: args.repoId
          }),
        findProjectProfiles: async () => ({ projects: [] }),
@@ -456,7 +490,30 @@ Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
        }),
        refreshAuth: async () => ({
          status: 'unconfigured',
-@@ -3306,6 +3332,13 @@ function createComputerUsePermissionsApi
+         auth: await webOrcaProfileAuthStatus()
+       }),
+-      signOutCurrent: async () => ({
+-        status: 'signed-out',
+-        auth: await webOrcaProfileAuthStatus(),
+-        activeProfileId: DEFAULT_LOCAL_ORCA_PROFILE_ID,
+-        profiles: [createDefaultLocalOrcaProfile(0)]
+-      }),
++      // Why this one is a real call while its neighbours are not: signing OUT only has to reach
++      // the host, and `orcaProfiles.signOutCurrent` does. The constant it replaces returned
++      // `status: 'signed-out'` without contacting anything, so the store toasted "Signed out of
++      // profile" and then re-read a host status still showing the account connected. No fallback
++      // here on purpose - the result type has one status, so an offline answer would be that same
++      // lie. A throw is what the store already renders as "Failed to sign out".
++      signOutCurrent: () =>
++        callRuntimeResult<SignOutCurrentOrcaProfileResult>(
++          'orcaProfiles.signOutCurrent',
++          {},
++          15_000
++        ),
+       selectOrg: async () => ({
+         status: 'unconfigured',
+         auth: await webOrcaProfileAuthStatus()
+@@ -3306,6 +3341,13 @@ function createComputerUsePermissionsApi
    }
  }
  
@@ -470,7 +527,7 @@ Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
  function createSkillsApi(): NonNullable<Partial<PreloadApi>['skills']> {
    return {
      discover: (target) =>
-@@ -3325,6 +3358,14 @@ function createSkillsApi(): NonNullable<
+@@ -3325,6 +3367,14 @@ function createSkillsApi(): NonNullable<
      cancelUpdateRun: () => Promise.resolve(),
      acknowledgeUpdateRun: () => Promise.resolve(),
      getUpdateRun: () => Promise.resolve({ state: 'idle' as const }),
@@ -485,7 +542,7 @@ Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
      prepareShare: () => Promise.reject(new Error('Skill publishing requires the desktop app.')),
      publishShare: () => Promise.reject(new Error('Skill publishing requires the desktop app.')),
      cancelShare: () => Promise.resolve(),
-@@ -3337,13 +3378,42 @@ function createSkillsApi(): NonNullable<
+@@ -3337,13 +3387,42 @@ function createSkillsApi(): NonNullable<
        Promise.reject(new Error('Skill installation requires the desktop app.')),
      installBundlePackageVersion: () =>
        Promise.reject(new Error('Skill installation requires the desktop app.')),
@@ -532,7 +589,7 @@ Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
      getPackage: () => Promise.reject(new Error('Skill installation requires the desktop app.')),
      listOwnedShares: () =>
        Promise.reject(new Error('Skill package management requires the desktop app.')),
-@@ -4259,8 +4329,35 @@ async function syncRuntimeBackedSettings
+@@ -4259,8 +4338,35 @@ async function syncRuntimeBackedSettings
        updates.prBotAuthorOverrides
      )
    }
@@ -569,7 +626,7 @@ Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
    }
    try {
      const result = await callRuntimeResult<{ settings: Partial<GlobalSettings> }>(
-@@ -4281,7 +4378,7 @@ async function syncRuntimeBackedSettings
+@@ -4281,7 +4387,7 @@ async function syncRuntimeBackedSettings
        worktreeVisibilityDefaultsRuntimeValue = updatedVisibilityDefaults
      }
      delete runtimeSettings.worktreeVisibilityDefaults
@@ -578,7 +635,7 @@ Index: b/lib/orca/src/renderer/src/web/web-preload-api.ts
      writeStoredSettings(next)
      return next
    } catch (error) {
-@@ -4289,7 +4386,7 @@ async function syncRuntimeBackedSettings
+@@ -4289,7 +4395,7 @@ async function syncRuntimeBackedSettings
        throw error
      }
      // Why: unpaired/offline web clients still need local settings persistence.

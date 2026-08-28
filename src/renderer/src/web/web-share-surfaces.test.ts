@@ -15,12 +15,14 @@ function mockRuntime(calls: RuntimeCall[], resultFor: (method: string) => unknow
     WebRuntimeClient: class {
       call(method: string, params?: unknown): Promise<RuntimeRpcResponse<unknown>> {
         calls.push({ method, params })
-        return Promise.resolve({
+        // Deferred so a `resultFor` that throws rejects the call the way an unreachable host does,
+        // rather than throwing synchronously out of `call`.
+        return Promise.resolve().then(() => ({
           id: `call-${calls.length}`,
-          ok: true,
+          ok: true as const,
           result: resultFor(method),
           _meta: { runtimeId: 'runtime-1' }
-        })
+        }))
       }
 
       close(): void {}
@@ -68,6 +70,43 @@ describe('web share surfaces', () => {
     expect(calls.map((call) => call.method)).toContain('orcaProfiles.authStatus')
     expect(status.configured).toBe(true)
     expect(status.state).toBe('connected')
+  }, 15_000)
+
+  it('sends sign-out to the host instead of answering a canned success', async () => {
+    // Symptom without this: Settings > Orca Account toasts "Signed out of profile", the pane
+    // re-reads the host status, and the account is still connected there.
+    const calls: RuntimeCall[] = []
+    const globals = await installApi(calls, (method) =>
+      method === 'orcaProfiles.signOutCurrent'
+        ? {
+            status: 'signed-out',
+            auth: { ...HOST_AUTH, configured: false, state: 'unconfigured' },
+            activeProfileId: 'local-default',
+            profiles: []
+          }
+        : HOST_AUTH
+    )
+
+    const result = await globals.window.api.orcaProfiles.signOutCurrent()
+
+    expect(calls.map((call) => call.method)).toContain('orcaProfiles.signOutCurrent')
+    expect(result.auth.state).toBe('unconfigured')
+  }, 15_000)
+
+  it('fails sign-out when the host cannot be reached rather than claiming it succeeded', async () => {
+    // The result type carries one status, so an offline "signed-out" is indistinguishable from a
+    // real one at every caller. The store renders a rejection as "Failed to sign out".
+    const calls: RuntimeCall[] = []
+    const globals = await installApi(calls, (method) => {
+      if (method === 'orcaProfiles.signOutCurrent') {
+        throw new Error('runtime unreachable')
+      }
+      return HOST_AUTH
+    })
+
+    await expect(globals.window.api.orcaProfiles.signOutCurrent()).rejects.toThrow(
+      'runtime unreachable'
+    )
   }, 15_000)
 
   it('sends a publish grant on the runtime-scope method, never on settings.update', async () => {

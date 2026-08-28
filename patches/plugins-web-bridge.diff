@@ -27,13 +27,21 @@ No allowlist change: `plugins.*` mutates host state and stays off
 asserted rather than assumed - every other family this series routes pins itself
 off the allowlist with a negative case, and plugins was the one that did not.
 
-To test, call `plugins.list` and `plugins.setEnabled` from the tile over
-`window.api.plugins`: the host's plugins should list, and a toggle should stick
-across a reload. Settings > Plugins is NOT the route - it is not listed in the
-web nav, because only the read half of this namespace is wired: `install`,
-`refresh` and `remove` have no runtime method, so the pane's Install control
-throws. Finishing the write half is what earns the section back;
-`settings-nav-web-parity.diff` records the measurement. Red with this patch popped:
+What still holds the pane back is not `install`. `PluginsSettingsSection` guards
+its list effect on `settings.pluginSystemEnabled`, and that key is on neither
+`SettingsUpdate` nor the settings-sync allowlist, so the tile's master switch
+flips a browser-local boolean and none of the six methods above is ever called.
+Routing that one key to the host - as its own runtime-scope method, never by
+widening `SettingsUpdate`, which a paired phone reaches - is what makes this pane
+work, and it also turns on plugin panels in the right sidebar and plugin quick
+commands. It is not in this patch.
+
+To test, open Settings > Plugins in the tile and turn the plugin system on: the
+host's plugins should list and a toggle should stick across a reload. Until
+`pluginSystemEnabled` reaches the host that switch does not persist, so the direct
+route is `plugins.list` and `plugins.setEnabled` over `window.api.plugins`.
+Installing a plugin from the tile still throws - `install`, `refresh` and `remove`
+have no runtime method. Red with this patch popped:
 `web-plugins-bridge.test.ts`. `mobile-rpc-allowlist.test.ts` stays green popped -
 it is a patched file, so popping deletes its two plugin cases rather than failing
 them; they guard the allowlist, they do not cover this patch.
