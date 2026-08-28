@@ -44,7 +44,7 @@ inside a container or an unprivileged LXC.
 ## Download and extract
 
 ```bash
-VERSION=4.190.0
+VERSION=4.190.1
 ARCH=$(uname -m)
 sudo mkdir -p /opt/orca-server
 cd /opt/orca-server
