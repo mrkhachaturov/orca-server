@@ -28,7 +28,10 @@ asserted rather than assumed - every other family this series routes pins itself
 off the allowlist with a negative case, and plugins was the one that did not.
 
 To test, open Settings > Plugins in the tile: the installed plugins should list,
-and toggling one should stick across a reload. Red with this patch popped:
+and toggling one should stick across a reload. That section is only listed in the
+web nav from `settings-nav-web-parity.diff` onwards - before it, this capability
+was reachable over the wire and had no route in the UI at all, which is the same
+failure this header records for v1.4.184 below. Red with this patch popped:
 `web-plugins-bridge.test.ts`. `mobile-rpc-allowlist.test.ts` stays green popped -
 it is a patched file, so popping deletes its two plugin cases rather than failing
 them; they guard the allowlist, they do not cover this patch.
