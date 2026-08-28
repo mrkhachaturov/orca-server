@@ -6,6 +6,7 @@
 - [Requirements](#requirements)
 - [Download and extract](#download-and-extract)
 - [Run it](#run-it)
+  - [Serving it under a path prefix](#serving-it-under-a-path-prefix)
   - [Three things that fail quietly](#three-things-that-fail-quietly)
 - [Run it under systemd](#run-it-under-systemd)
 - [Pairing a phone](#pairing-a-phone)
@@ -43,7 +44,7 @@ inside a container or an unprivileged LXC.
 ## Download and extract
 
 ```bash
-VERSION=4.156.0
+VERSION=4.190.0
 ARCH=$(uname -m)
 sudo mkdir -p /opt/orca-server
 cd /opt/orca-server
@@ -66,6 +67,24 @@ Put a reverse proxy that authenticates your users in front of `127.0.0.1:6799`. 
 
 Health is `GET /web-index.html`. Do not health-check `/trusted-session`, which answers 503 until the first pairing offer
 is minted, and do not health-check the WebSocket port.
+
+### Serving it under a path prefix
+
+A subdomain needs nothing below. Under a path prefix the entry URL is the only thing to get right: the web client
+resolves the assets, the credential and the WebSocket relative to the page it was served from.
+
+- The proxy forwards the prefix (`proxy_pass http://127.0.0.1:6799;`) — the entry URL is
+  `/<prefix>/web-index.html`. Only `/` and `/index.html` are rewritten to `/web-index.html`, so `/<prefix>/` alone
+  is a 404. Health moves with it: `GET /<prefix>/web-index.html`.
+- The proxy strips the prefix (`proxy_pass http://127.0.0.1:6799/;`) — the entry URL is `/<prefix>/`, with the
+  trailing slash. Without it the browser resolves every following request one level too high.
+
+Either way, pass the WebSocket upgrade under the same prefix.
+
+`/trusted-session` answers under a forwarded prefix as well, and loopback is the gate on it — the TCP peer address,
+not the path and not `X-Forwarded-For`. Run the proxy on the same host: `--trusted-proxy` binds the listener to
+`127.0.0.1`, so nothing off-box reaches it in the first place. `/<prefix>/assets/foo/trusted-session` stays an asset
+lookup and 404s, so nothing under `/assets/` can mint a credential.
 
 ### Three things that fail quietly
 

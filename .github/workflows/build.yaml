@@ -86,6 +86,7 @@ jobs:
       # Before lint: doctoc writes the markdown rumdl then checks.
       - run: mise run lint:docs
       - run: mise run lint
+      - run: mise run lint:version
 
   series:
     name: Patch series integrity

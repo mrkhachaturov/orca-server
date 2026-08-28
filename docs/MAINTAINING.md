@@ -24,7 +24,8 @@
    workflow.
 5. Read the draft. Publish it if the notes and the asset are right.
 6. In `CHANGELOG.md`, rename `## Unreleased` to the released version with today's date, and open a fresh `## Unreleased`
-   above it.
+   above it. In the same commit, set the `VERSION=` line in [install](./install.md) and [upgrade](./upgrade.md) to that
+   version — `mise run lint:version` reads the new heading and fails until you do.
 
 Our version drops Orca's major and keeps the two components that move: `v1.4.156` releases as `v4.156.0`. The last slot
 is ours — re-releasing the same Orca with a changed series is `v4.156.1`, which the workflow does when you set the

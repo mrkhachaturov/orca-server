@@ -101,6 +101,12 @@ hooks {
         glob = List("docs/*.md")
         check = "CI=1 mise run lint:docs"
       }
+      // Rolling the changelog is what makes the docs' download pin stale, so
+      // that file is in the glob as much as docs/ is.
+      ["version-pin"] = new Step {
+        glob = List("docs/*.md", "CHANGELOG.md")
+        check = "mise run lint:version"
+      }
       // Off while the branch is mid-work: a review of an unfinished tree gates
       // every push on findings we already know about. Restore before the next
       // release. The same engine still runs on the pull request.

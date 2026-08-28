@@ -32,7 +32,9 @@ LIBGL_ALWAYS_SOFTWARE=1 ORCA_APPIMAGE_NO_SANDBOX=1 \
   squashfs-root/resources/bin/orca-ide serve --trusted-proxy --port 6799
 ```
 
-Point a reverse proxy that authenticates your users at `127.0.0.1:6799`, then open it.
+Point a reverse proxy that authenticates your users at `127.0.0.1:6799`, then open it. A subpath works as well as a
+subdomain — no flag, no configured base URL — because the web client resolves the runtime and its own credential
+relative to the page it was served from. What the proxy must forward: [install](./install.md).
 
 Health is `GET /web-index.html`.
 
