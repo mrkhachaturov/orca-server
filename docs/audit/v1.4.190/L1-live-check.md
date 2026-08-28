@@ -125,7 +125,11 @@ caller-blind: `orca skills share` typed by a human is refused exactly like an ag
   hasOffscreen` filter); `browser.headless.v1` is advertised to tell clients this host owns browser
   pages and they must not fall back to a local desktop tab. So the redirect landing on the host's
   loopback is not the dead end it looks like: a page in Orca's own browser **is** on the host's
-  loopback.
+  loopback. **Driven end to end, not inferred** — see `N3-orca-account-sign-in.md`.
+
+  *Method error that produced the false line:* the check was `which` for a SYSTEM browser. It found
+  none and stopped. Nobody asked whether Orca ships one. On this host the answer to "is there a
+  browser" is never on `PATH`.
 - Probed unauthenticated against `login.onorca.dev`: a `http://127.0.0.1:<port>` redirect_uri is
   accepted (302, error delivered *to* the redirect), any https origin is rejected with a flat 400,
   `/.well-known/openid-configuration` and `/.well-known/oauth-authorization-server` are 404, and

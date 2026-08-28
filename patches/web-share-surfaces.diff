@@ -48,7 +48,7 @@ host's own 127.0.0.1, hands it the authorization code, and calls
 proxy-origin callback is rejected with a flat 400 and there is no device-code
 grant. The host has no `xdg-open` and no `gio`, so `shell.openExternal` fails -
 but Orca ships and runs its own browser on the host, `agent-browser-linux-x64`,
-and a page in it reaches that same loopback. The route, and the one risk that
+and a page in it reaches that same loopback - driven end to end, not inferred. The route, and the one risk that
 stopped it being built here, are in
 `docs/audit/v1.4.190/N3-orca-account-sign-in.md`. When a host session does exist
 it is memory-only, because `safeStorage.isEncryptionAvailable()` is false with no
