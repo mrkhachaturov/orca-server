@@ -103,7 +103,7 @@ jobs:
       # series itself, and the build task applies it itself.
       - run: mise run test:series
 
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # No platform argument: the task defaults to the host, which is already
       # the runner the matrix chose.
